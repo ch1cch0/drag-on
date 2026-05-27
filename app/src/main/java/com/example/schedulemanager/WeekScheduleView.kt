@@ -13,8 +13,8 @@ import android.util.AttributeSet
 import android.view.DragEvent
 import android.view.GestureDetector
 import android.view.MotionEvent
-import android.view.View
 import android.view.animation.DecelerateInterpolator
+import android.view.View
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.GestureDetectorCompat
 import com.example.schedulemanager.data.RepeatType
@@ -45,6 +45,14 @@ class WeekScheduleView @JvmOverloads constructor(
             startFocusAnimation(field, target)
             field = target
         }
+
+    // ◀ [추가] MainActivity로부터 공휴일 데이터를 전달받을 변수
+    var holidays: List<HolidayItem> = emptyList()
+        set(value) {
+            field = value
+            invalidate() // 데이터 세팅 시 화면 즉시 갱신
+        }
+
     var onScheduleClick: ((ScheduleEntity) -> Unit)? = null
     var onDayFocus: ((LocalDate) -> Unit)? = null
     var onScheduleDrop: ((Long, LocalDate, Int, Int) -> Unit)? = null
@@ -176,13 +184,26 @@ class WeekScheduleView @JvmOverloads constructor(
             } else {
                 "${dayLabels[day - 1].take(1)}\n${date.dayOfMonth}"
             }
+
+            // ◀ [수정] 해당 요일이 공휴일인지 판별합니다.
+            val isCurrentDateHoliday = checkIsHoliday(date)
+
+            // ◀ [수정] 포커스 유무와 공휴일 여부를 조합하여 글자 색상을 바꿉니다.
+            val normalColor = if (isCurrentDateHoliday) Color.rgb(214, 48, 49) else Color.rgb(24, 32, 42) // 공휴일이면 기본 빨간색
+
             val animatedTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = ColorUtils.blendARGB(Color.rgb(24, 32, 42), Color.WHITE, focusAmount)
+                color = ColorUtils.blendARGB(normalColor, Color.WHITE, focusAmount) // 파란색 카드에 강조 선택되면 흰색글씨로 자동 보간
                 textSize = 13f * density
                 typeface = textPaint.typeface
             }
             drawMultilineCentered(canvas, label, rect, animatedTextPaint)
         }
+    }
+
+    // ◀ [추가] 날짜 매칭용 헬퍼 함수
+    private fun checkIsHoliday(date: LocalDate): Boolean {
+        val targetDateInt = date.year * 10000 + date.monthValue * 100 + date.dayOfMonth
+        return holidays.any { it.locdate == targetDateInt }
     }
 
     private fun drawGrid(canvas: Canvas) {
