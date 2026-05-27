@@ -6,6 +6,7 @@ import android.graphics.Color
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
+import android.util.Log
 import android.view.GestureDetector
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -38,8 +39,12 @@ import com.example.schedulemanager.databinding.ActivityMainBinding
 import com.example.schedulemanager.databinding.ItemScheduleBinding
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.button.MaterialButton
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
@@ -53,6 +58,8 @@ class MainActivity : AppCompatActivity() {
     private lateinit var gestureDetector: GestureDetectorCompat
     private lateinit var scaleDetector: android.view.ScaleGestureDetector
 
+    private lateinit var holidayService: HolidayService
+
     private var schedules: List<ScheduleEntity> = emptyList()
     private var categories: List<CategoryEntity> = emptyList()
     private var selectedDate: LocalDate = LocalDate.now()
@@ -61,10 +68,16 @@ class MainActivity : AppCompatActivity() {
     private var displayedMonth: LocalDate = LocalDate.now().withDayOfMonth(1)
     private var calendarMode = false
 
+    private var currentHolidays: List<HolidayItem> = emptyList()
+
     private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
     private val deadlineFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
     private val monthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy")
     private val shortDateFormatter = DateTimeFormatter.ofPattern("M/d")
+
+    // 공휴일 파싱을 위한 포매터 (예: "20260524" -> LocalDate)
+    private val holidayDateFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
+
     private val colorOptions = listOf(
         "Blue" to Color.rgb(34, 108, 224),
         "Green" to Color.rgb(46, 160, 67),
@@ -80,6 +93,8 @@ class MainActivity : AppCompatActivity() {
 
         val database = AppDatabase.getInstance(this)
         repository = ScheduleRepository(database.scheduleDao(), database.categoryDao())
+
+        initRetrofit()
 
         ViewCompat.setOnApplyWindowInsetsListener(binding.main) { view, insets ->
             val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
@@ -109,6 +124,7 @@ class MainActivity : AppCompatActivity() {
         binding.monthCalendar.onMonthChanged = {
             displayedMonth = it
             renderMainSurface()
+            fetchHolidaysForMonth(it)
         }
         binding.monthCalendar.onTodaySelected = {
             selectedDate = LocalDate.now()
@@ -116,6 +132,7 @@ class MainActivity : AppCompatActivity() {
             focusedDay = selectedDate.dayOfWeek.value
             displayedMonth = selectedDate.withDayOfMonth(1)
             renderMainSurface()
+            fetchHolidaysForMonth(displayedMonth)
         }
 
         installGestures()
@@ -129,6 +146,90 @@ class MainActivity : AppCompatActivity() {
                 categories = categoryList
                 renderInbox()
                 renderMainSurface()
+            }
+        }
+
+        fetchHolidaysForMonth(displayedMonth)
+    }
+
+    private fun initRetrofit() {
+        val retrofit = Retrofit.Builder()
+            .baseUrl("https://apis.data.go.kr/")
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+
+        holidayService = retrofit.create(HolidayService::class.java)
+    }
+
+    private fun fetchHolidaysForMonth(date: LocalDate) {
+        val year = date.year
+        val monthStr = String.format("%02d", date.monthValue)
+        val apiKey = "MOVVR0Kvjay1WwytGnYzaLykpObq9yLRNwLvLw2wKueXdnJwsi6RdEfhmtybGSpYEQ4mGkF7SMexF3s3Bb5VhQ%3D%3D"
+
+        lifecycleScope.launch {
+            try {
+                val response = withContext(Dispatchers.IO) {
+                    holidayService.getHolidays(
+                        serviceKey = apiKey,
+                        solYear = year,
+                        solMonth = monthStr
+                    ).execute()
+                }
+
+                if (response.isSuccessful) {
+                    val holidayList = response.body()?.response?.body?.items?.item
+                    currentHolidays = holidayList ?: emptyList()
+
+                    if (!currentHolidays.isNullOrEmpty()) {
+                        // ◀ [추가 및 수정] 받아온 공휴일을 루프 돌며 실제 데이터베이스(Room DB)에 일정으로 자동 등록합니다.
+                        currentHolidays.forEach { holiday ->
+                            Log.d("HolidayAPI", "공휴일 발견 -> 이름: ${holiday.dateName}, 날짜: ${holiday.locdate}")
+
+                            try {
+                                val parsedDate = LocalDate.parse(holiday.locdate.toString(), holidayDateFormatter)
+                                val epochDay = parsedDate.toEpochDay()
+                                val title = holiday.dateName
+
+                                // 중복 등록 체크: 이미 해당 날짜에 같은 제목의 일정이 있다면 패스합니다.
+                                val isAlreadyRegistered = schedules.any {
+                                    it.scheduledDate == epochDay && it.title == title
+                                }
+
+                                if (!isAlreadyRegistered) {
+                                    val holidaySchedule = ScheduleEntity(
+                                        id = 0, // Auto-increment
+                                        title = title,
+                                        categoryId = null, // 필요시 기본 공휴일 카테고리 ID 연동 가능
+                                        color = Color.rgb(214, 48, 49), // 공휴일이므로 기본 Red 색상 지정
+                                        isRepeat = false,
+                                        repeatType = RepeatType.NONE,
+                                        durationMinutes = 1440, // 하루 종일(24시간)
+                                        deadline = null,
+                                        scheduledDate = epochDay,
+                                        dayOfWeek = parsedDate.dayOfWeek.value,
+                                        startTimeMinutes = 0, // 00:00 시작
+                                        status = ScheduleStatus.SCHEDULED // 시간표 화면에 즉시 노출
+                                    )
+                                    repository.saveSchedule(holidaySchedule)
+                                    Log.d("HolidayAPI", "DB에 공휴일 일정 등록 완료: $title ($parsedDate)")
+                                }
+                            } catch (e: Exception) {
+                                Log.e("HolidayAPI", "공휴일 날짜 파싱 또는 DB 저장 실패: ${e.message}")
+                            }
+                        }
+                    } else {
+                        Log.d("HolidayAPI", "${year}년 ${monthStr}월에는 공휴일이 없습니다.")
+                    }
+
+                    withContext(Dispatchers.Main) {
+                        renderMainSurface()
+                    }
+
+                } else {
+                    Log.e("HolidayAPI", "API 요청 실패 코드: ${response.code()}")
+                }
+            } catch (e: Exception) {
+                Log.e("HolidayAPI", "통신 중 오류 발생: ${e.message}", e)
             }
         }
     }
@@ -199,6 +300,9 @@ class MainActivity : AppCompatActivity() {
         binding.titleText.text = "${selectedWeekStart.format(shortDateFormatter)} - ${weekEnd.format(shortDateFormatter)}"
         binding.weekHeader.selectedWeekStart = selectedWeekStart
         binding.weekHeader.focusedDay = focusedDay
+
+        binding.weekHeader.holidays = currentHolidays
+
         binding.weekSchedule.schedules = schedules
         binding.weekSchedule.selectedWeekStart = selectedWeekStart
         binding.weekSchedule.focusedDay = focusedDay
@@ -208,6 +312,8 @@ class MainActivity : AppCompatActivity() {
         binding.titleText.text = displayedMonth.format(monthFormatter)
         binding.monthCalendar.displayedMonth = displayedMonth
         binding.monthCalendar.selectedDate = selectedDate
+
+        binding.monthCalendar.holidays = currentHolidays
     }
 
     private fun focusDate(date: LocalDate) {
@@ -217,6 +323,11 @@ class MainActivity : AppCompatActivity() {
         focusedDay = date.dayOfWeek.value
         calendarMode = false
         renderMainSurface()
+
+        if (displayedMonth.monthValue != date.monthValue || displayedMonth.year != date.year) {
+            displayedMonth = date.withDayOfMonth(1)
+            fetchHolidaysForMonth(displayedMonth)
+        }
     }
 
     private fun startScheduleDrag(schedule: ScheduleEntity, itemView: View): Boolean {
