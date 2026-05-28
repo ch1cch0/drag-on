@@ -59,6 +59,7 @@ class MainActivity : AppCompatActivity() {
     private lateinit var scaleDetector: android.view.ScaleGestureDetector
 
     private lateinit var holidayService: HolidayService
+    private lateinit var recommenderService: RecommenderService
 
     private var schedules: List<ScheduleEntity> = emptyList()
     private var categories: List<CategoryEntity> = emptyList()
@@ -150,21 +151,26 @@ class MainActivity : AppCompatActivity() {
     }
 
     private fun initRetrofit() {
-        val retrofit = Retrofit.Builder()
+        val retrofitHoliday = Retrofit.Builder()
             .baseUrl("https://apis.data.go.kr/")
             .addConverterFactory(GsonConverterFactory.create())
             .build()
+        holidayService = retrofitHoliday.create(HolidayService::class.java)
 
-        holidayService = retrofit.create(HolidayService::class.java)
+        val aiBaseUrl = "http://10.0.2.2:8000/"
+        val retrofitAi = Retrofit.Builder()
+            .baseUrl(aiBaseUrl)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+        recommenderService = retrofitAi.create(RecommenderService::class.java)
     }
 
     private fun fetchHolidaysForMonth(date: LocalDate) {
         val year = date.year
         val monthStr = String.format("%02d", date.monthValue)
-
-        // ◀ [보안 수정] 하드코딩된 인증키 문자열을 제거하고 BuildConfig 필드로 안전하게 대체했습니다.
         val apiKey = BuildConfig.GO_DATA_API_KEY
 
+        Log.d("HolidayAPI", "현재 주입된 API KEY: $apiKey")
 
         lifecycleScope.launch {
             try {
@@ -268,6 +274,7 @@ class MainActivity : AppCompatActivity() {
         binding.weekHeader.selectedWeekStart = selectedWeekStart
         binding.weekHeader.focusedDay = focusedDay
 
+        // ◀ [공휴일 엔진 복구] 주간 상단 컴포넌트에 공휴일 데이터 바인딩 주입 완료
         binding.weekHeader.holidays = currentHolidays
 
         binding.weekSchedule.schedules = schedules
@@ -280,6 +287,7 @@ class MainActivity : AppCompatActivity() {
         binding.monthCalendar.displayedMonth = displayedMonth
         binding.monthCalendar.selectedDate = selectedDate
 
+        // ◀ [공휴일 엔진 복구] 달력 컴포넌트에 공휴일 데이터 바인딩 주입 완료
         binding.monthCalendar.holidays = currentHolidays
     }
 
@@ -327,173 +335,203 @@ class MainActivity : AppCompatActivity() {
             return
         }
 
-        val form = cardForm()
+        val dialogView = layoutInflater.inflate(R.layout.dialog_smart_editor, null)
+        val nlpInput = dialogView.findViewById<EditText>(R.id.smartNlpInput)
+        val nlpButton = dialogView.findViewById<MaterialButton>(R.id.smartNlpButton)
+        val manualContainer = dialogView.findViewById<LinearLayout>(R.id.manualFormContainer)
+
+        manualContainer.addView(label("Title"))
         val titleInput = EditText(this).apply {
             hint = "Title"
             setText(schedule?.title.orEmpty())
             setSingleLine(true)
         }
+        manualContainer.addView(titleInput)
+
         val categorySpinner = Spinner(this)
         val colorSpinner = Spinner(this)
         val repeatModeSpinner = Spinner(this)
+
         val hourPicker = NumberPicker(this).apply {
-            minValue = 0
-            maxValue = 8
+            minValue = 0; maxValue = 8; wrapSelectorWheel = false
             value = (schedule?.durationMinutes ?: 0) / 60
-            wrapSelectorWheel = false
         }
         val minuteValues = arrayOf("00", "15", "30", "45")
         val minutePicker = NumberPicker(this).apply {
-            minValue = 0
-            maxValue = minuteValues.lastIndex
-            displayedValues = minuteValues
-            value = when ((schedule?.durationMinutes ?: -1) % 60) {
-                15 -> 1
-                30 -> 2
-                45 -> 3
-                else -> 0
-            }
-            wrapSelectorWheel = false
+            minValue = 0; maxValue = minuteValues.lastIndex; displayedValues = minuteValues; wrapSelectorWheel = false
+            value = when ((schedule?.durationMinutes ?: -1) % 60) { 15 -> 1; 30 -> 2; 45 -> 3; else -> 0 }
         }
+
         var selectedDeadline: LocalDate? = schedule?.deadline?.let { dateFromEpochDay(it) }
         val deadlineInput = EditText(this).apply {
             hint = "YYYY.MM.DD"
             setText(selectedDeadline?.format(deadlineFormatter).orEmpty())
             setSingleLine(true)
-            isFocusable = false
-            isCursorVisible = false
-            isClickable = true
+            isFocusable = false; isCursorVisible = false; isClickable = true
             background = getDrawable(R.drawable.bg_date_input)
             setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.ic_calendar_24, 0)
             compoundDrawablePadding = dp(10)
             setPadding(dp(12), 0, dp(12), 0)
             minHeight = dp(48)
-            setOnClickListener {
-                showDeadlinePicker(selectedDeadline) { date ->
-                    selectedDeadline = date
-                    setText(date?.format(deadlineFormatter).orEmpty())
-                }
+        }
+        deadlineInput.setOnClickListener {
+            showDeadlinePicker(selectedDeadline) { date ->
+                selectedDeadline = date
+                deadlineInput.setText(date?.format(deadlineFormatter).orEmpty())
             }
         }
 
         categorySpinner.adapter = simpleAdapter(listOf("Unset") + categories.map { it.name })
-        val selectedCategoryIndex = categories.indexOfFirst { it.id == schedule?.categoryId }.takeIf { it >= 0 }?.plus(1) ?: 0
-        categorySpinner.setSelection(selectedCategoryIndex)
+        categorySpinner.setSelection(categories.indexOfFirst { it.id == schedule?.categoryId }.takeIf { it >= 0 }?.plus(1) ?: 0)
 
         colorSpinner.adapter = simpleAdapter(listOf("Unset") + colorOptions.map { it.first })
-        val selectedColorIndex = colorOptions.indexOfFirst { it.second == schedule?.color }.takeIf { it >= 0 }?.plus(1) ?: 0
-        colorSpinner.setSelection(selectedColorIndex)
+        colorSpinner.setSelection(colorOptions.indexOfFirst { it.second == schedule?.color }.takeIf { it >= 0 }?.plus(1) ?: 0)
 
         repeatModeSpinner.adapter = simpleAdapter(listOf("Unset", "One-time", "Weekly", "Daily"))
-        repeatModeSpinner.setSelection(
-            when (schedule?.repeatType) {
-                null -> 0
-                RepeatType.NONE -> 1
-                RepeatType.WEEKLY -> 2
-                RepeatType.DAILY -> 3
-            }
-        )
+        repeatModeSpinner.setSelection(when (schedule?.repeatType) { null -> 0; RepeatType.NONE -> 1; RepeatType.WEEKLY -> 2; RepeatType.DAILY -> 3 })
+
+        manualContainer.addView(label("Category")); manualContainer.addView(categorySpinner)
+        manualContainer.addView(label("Color")); manualContainer.addView(colorSpinner)
+        manualContainer.addView(label("Repeat / One-time")); manualContainer.addView(repeatModeSpinner)
+        manualContainer.addView(label("Duration"))
+        manualContainer.addView(LinearLayout(this).apply {
+            orientation = LinearLayout.HORIZONTAL
+            addView(hourPicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+            addView(minutePicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
+        })
+        manualContainer.addView(label("Deadline")); manualContainer.addView(deadlineInput)
 
         categorySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
                 if (position > 0) {
                     val category = categories[position - 1]
                     if (schedule?.durationMinutes == null && hourPicker.value == 0 && minutePicker.value == 0) {
-                        category.defaultDurationMinutes?.let {
-                            hourPicker.value = it / 60
-                            minutePicker.value = (it % 60) / 15
-                        }
+                        category.defaultDurationMinutes?.let { hourPicker.value = it / 60; minutePicker.value = (it % 60) / 15 }
                     }
                     if (schedule?.repeatType == null && repeatModeSpinner.selectedItemPosition == 0) {
                         category.defaultRepeatType?.let { repeatType ->
-                            repeatModeSpinner.setSelection(
-                                when (repeatType) {
-                                    RepeatType.NONE -> 1
-                                    RepeatType.WEEKLY -> 2
-                                    RepeatType.DAILY -> 3
-                                }
-                            )
+                            repeatModeSpinner.setSelection(when (repeatType) { RepeatType.NONE -> 1; RepeatType.WEEKLY -> 2; RepeatType.DAILY -> 3 })
                         }
                     }
                     category.defaultColor?.let { defaultColor ->
                         val colorIndex = colorOptions.indexOfFirst { it.second == defaultColor }
-                        if (schedule?.color == null && colorSpinner.selectedItemPosition == 0 && colorIndex >= 0) {
-                            colorSpinner.setSelection(colorIndex + 1)
-                        }
+                        if (schedule?.color == null && colorSpinner.selectedItemPosition == 0 && colorIndex >= 0) { colorSpinner.setSelection(colorIndex + 1) }
                     }
                 }
             }
-
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
-        form.addView(label("Title"))
-        form.addView(titleInput)
-        form.addView(label("Category"))
-        form.addView(categorySpinner)
-        form.addView(label("Color"))
-        form.addView(colorSpinner)
-        form.addView(label("Repeat / One-time"))
-        form.addView(repeatModeSpinner)
-        form.addView(label("Duration"))
-        form.addView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(hourPicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                addView(minutePicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            }
-        )
-        form.addView(label("Deadline"))
-        form.addView(deadlineInput)
+        var aiRecommendedDate: LocalDate? = null
+        var aiRecommendedMinutes: Int? = null
 
-        AlertDialog.Builder(this)
-            .setTitle(if (schedule == null) "Add schedule" else "Edit schedule")
-            .setView(scrollWrap(form))
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save", null)
-            .create()
-            .also { dialog ->
-                dialog.setOnShowListener {
-                    dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        val title = titleInput.text.toString().trim()
-                        if (title.isBlank()) {
-                            titleInput.error = "Required"
-                            return@setOnClickListener
+        nlpButton.setOnClickListener {
+            val rawText = nlpInput.text.toString().trim()
+            if (rawText.isBlank()) {
+                nlpInput.error = "문장을 먼저 입력해 주세요."
+                return@setOnClickListener
+            }
+
+            lifecycleScope.launch(Dispatchers.IO) {
+                try {
+                    val response = recommenderService.nlpAnalyze(NlpRequest(text = rawText)).execute()
+                    if (response.isSuccessful && response.body() != null) {
+                        val res = response.body()!!
+
+                        withContext(Dispatchers.Main) {
+                            titleInput.setText(res.parsedTitle)
+
+                            val matchedCatIdx = categories.indexOfFirst {
+                                it.name.contains(res.parsedCategory) || res.parsedCategory.contains(it.name)
+                            }
+                            if (matchedCatIdx >= 0) {
+                                categorySpinner.setSelection(matchedCatIdx + 1)
+                            }
+
+                            val targetDate = when (res.parsedDate) {
+                                "오늘" -> LocalDate.now()
+                                "내일" -> LocalDate.now().plusDays(1)
+                                "모레" -> LocalDate.now().plusDays(2)
+                                else -> LocalDate.now()
+                            }
+                            selectedDeadline = targetDate
+                            deadlineInput.setText(targetDate.format(deadlineFormatter))
+
+                            aiRecommendedDate = targetDate
+                            aiRecommendedMinutes = res.recommendedTimeSlot
+
+                            val recHour = res.recommendedTimeSlot / 60
+                            val recMin = res.recommendedTimeSlot % 60
+                            val dayText = when (targetDate.dayOfWeek.value) {
+                                1 -> "월" 2 -> "화" 3 -> "수" 4 -> "목" 5 -> "금" 6 -> "토" else -> "일"
+                            }
+
+                            Toast.makeText(this@MainActivity,
+                                "🤖 AI 추천 피드백 수신 완료:\n${dayText}요일 ${String.format("%02d:%02d", recHour, recMin)} 최적 확률 매칭",
+                                Toast.LENGTH_LONG).show()
                         }
-                        val deadline = selectedDeadline?.toEpochDay()
-                        val selectedCategory = categorySpinner.selectedItemPosition
-                            .takeIf { it > 0 }
-                            ?.let { categories[it - 1] }
-                        val repeatType = when (repeatModeSpinner.selectedItemPosition) {
-                            1 -> RepeatType.NONE
-                            2 -> RepeatType.WEEKLY
-                            3 -> RepeatType.DAILY
-                            else -> null
-                        }
-                        val durationMinutes = ((hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value))
-                            .takeIf { it > 0 }
-                        val entity = ScheduleEntity(
-                            id = schedule?.id ?: 0,
-                            title = title,
-                            categoryId = selectedCategory?.id,
-                            color = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
-                            isRepeat = repeatType?.let { it != RepeatType.NONE },
-                            repeatType = repeatType,
-                            durationMinutes = durationMinutes,
-                            deadline = deadline,
-                            scheduledDate = schedule?.scheduledDate,
-                            dayOfWeek = schedule?.dayOfWeek,
-                            startTimeMinutes = schedule?.startTimeMinutes,
-                            status = schedule?.status ?: ScheduleStatus.INBOX
-                        )
-                        lifecycleScope.launch { repository.saveSchedule(entity) }
-                        bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
-                        if (entity.status == ScheduleStatus.INBOX) animateIntoInbox()
-                        dialog.dismiss()
+                    }
+                } catch (e: Exception) {
+                    withContext(Dispatchers.Main) {
+                        Toast.makeText(this@MainActivity, "AI 서버 연동 실패: ${e.message}", Toast.LENGTH_SHORT).show()
                     }
                 }
             }
+        }
+
+        AlertDialog.Builder(this)
+            .setTitle(if (schedule == null) "Add schedule" else "Edit schedule")
+            .setView(dialogView)
+            .setNegativeButton("Cancel", null)
+            .setNeutralButton("시간표에 즉시 자동 배치") { dialog, _ ->
+                val title = titleInput.text.toString().trim()
+                if (title.isBlank() || aiRecommendedDate == null || aiRecommendedMinutes == null) {
+                    Toast.makeText(this, "AI 추천 정보가 없습니다. 분석을 먼저 완료해 주세요.", Toast.LENGTH_LONG).show()
+                    return@setNeutralButton
+                }
+
+                val selectedCategory = categorySpinner.selectedItemPosition.takeIf { it > 0 }?.let { categories[it - 1] }
+                val duration = (hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value)
+
+                val entity = ScheduleEntity(
+                    id = schedule?.id ?: 0, title = title, categoryId = selectedCategory?.id,
+                    color = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
+                    isRepeat = repeatModeSpinner.selectedItemPosition > 1,
+                    repeatType = when (repeatModeSpinner.selectedItemPosition) { 2 -> RepeatType.WEEKLY 3 -> RepeatType.DAILY else -> RepeatType.NONE },
+                    durationMinutes = if (duration > 0) duration else 60, deadline = selectedDeadline?.toEpochDay(),
+                    status = ScheduleStatus.SCHEDULED,
+                    scheduledDate = aiRecommendedDate!!.toEpochDay(), dayOfWeek = aiRecommendedDate!!.dayOfWeek.value, startTimeMinutes = aiRecommendedMinutes!!
+                )
+
+                lifecycleScope.launch {
+                    repository.saveSchedule(entity)
+                    focusDate(aiRecommendedDate!!)
+                }
+                dialog.dismiss()
+            }
+            .setPositiveButton("Save (Inbox로 저장)") { dialog, _ ->
+                val title = titleInput.text.toString().trim()
+                if (title.isBlank()) {
+                    titleInput.error = "Required"
+                    return@setPositiveButton
+                }
+                val deadline = selectedDeadline?.toEpochDay()
+                val selectedCategory = categorySpinner.selectedItemPosition.takeIf { it > 0 }?.let { categories[it - 1] }
+                val repeatType = when (repeatModeSpinner.selectedItemPosition) { 1 -> RepeatType.NONE 2 -> RepeatType.WEEKLY 3 -> RepeatType.DAILY else -> null }
+                val durationMinutes = ((hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value)).takeIf { it > 0 }
+                val entity = ScheduleEntity(
+                    id = schedule?.id ?: 0, title = title, categoryId = selectedCategory?.id,
+                    color = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
+                    isRepeat = repeatType?.let { it != RepeatType.NONE }, repeatType = repeatType, durationMinutes = durationMinutes, deadline = deadline,
+                    scheduledDate = schedule?.scheduledDate, dayOfWeek = schedule?.dayOfWeek, startTimeMinutes = schedule?.startTimeMinutes,
+                    status = schedule?.status ?: ScheduleStatus.INBOX
+                )
+                lifecycleScope.launch { repository.saveSchedule(entity) }
+                bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+                if (entity.status == ScheduleStatus.INBOX) animateIntoInbox()
+                dialog.dismiss()
+            }
+            .create()
             .show()
     }
 
