@@ -75,9 +75,6 @@ class MainActivity : AppCompatActivity() {
     private val monthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy")
     private val shortDateFormatter = DateTimeFormatter.ofPattern("M/d")
 
-    // 공휴일 파싱을 위한 포매터 (예: "20260524" -> LocalDate)
-    private val holidayDateFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
-
     private val colorOptions = listOf(
         "Blue" to Color.rgb(34, 108, 224),
         "Green" to Color.rgb(46, 160, 67),
@@ -181,41 +178,8 @@ class MainActivity : AppCompatActivity() {
                     currentHolidays = holidayList ?: emptyList()
 
                     if (!currentHolidays.isNullOrEmpty()) {
-                        // ◀ [추가 및 수정] 받아온 공휴일을 루프 돌며 실제 데이터베이스(Room DB)에 일정으로 자동 등록합니다.
                         currentHolidays.forEach { holiday ->
                             Log.d("HolidayAPI", "공휴일 발견 -> 이름: ${holiday.dateName}, 날짜: ${holiday.locdate}")
-
-                            try {
-                                val parsedDate = LocalDate.parse(holiday.locdate.toString(), holidayDateFormatter)
-                                val epochDay = parsedDate.toEpochDay()
-                                val title = holiday.dateName
-
-                                // 중복 등록 체크: 이미 해당 날짜에 같은 제목의 일정이 있다면 패스합니다.
-                                val isAlreadyRegistered = schedules.any {
-                                    it.scheduledDate == epochDay && it.title == title
-                                }
-
-                                if (!isAlreadyRegistered) {
-                                    val holidaySchedule = ScheduleEntity(
-                                        id = 0, // Auto-increment
-                                        title = title,
-                                        categoryId = null, // 필요시 기본 공휴일 카테고리 ID 연동 가능
-                                        color = Color.rgb(214, 48, 49), // 공휴일이므로 기본 Red 색상 지정
-                                        isRepeat = false,
-                                        repeatType = RepeatType.NONE,
-                                        durationMinutes = 1440, // 하루 종일(24시간)
-                                        deadline = null,
-                                        scheduledDate = epochDay,
-                                        dayOfWeek = parsedDate.dayOfWeek.value,
-                                        startTimeMinutes = 0, // 00:00 시작
-                                        status = ScheduleStatus.SCHEDULED // 시간표 화면에 즉시 노출
-                                    )
-                                    repository.saveSchedule(holidaySchedule)
-                                    Log.d("HolidayAPI", "DB에 공휴일 일정 등록 완료: $title ($parsedDate)")
-                                }
-                            } catch (e: Exception) {
-                                Log.e("HolidayAPI", "공휴일 날짜 파싱 또는 DB 저장 실패: ${e.message}")
-                            }
                         }
                     } else {
                         Log.d("HolidayAPI", "${year}년 ${monthStr}월에는 공휴일이 없습니다.")
@@ -816,7 +780,8 @@ class MainActivity : AppCompatActivity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    private class ScheduleAdapter(
+    // ◀ [수정] inner class 키워드를 추가하여 MainActivity의 멤버 변수(colorOptions 등)를 직접 참조할 수 있도록 변경했습니다.
+    private inner class ScheduleAdapter(
         private val onClick: (ScheduleEntity) -> Unit,
         private val onLongClick: (ScheduleEntity, View) -> Boolean,
         private val categoryName: (Long?) -> String
@@ -840,7 +805,7 @@ class MainActivity : AppCompatActivity() {
 
         override fun getItemCount(): Int = items.size
 
-        private class ScheduleViewHolder(
+        private inner class ScheduleViewHolder(
             private val binding: ItemScheduleBinding,
             private val onClick: (ScheduleEntity) -> Unit,
             private val onLongClick: (ScheduleEntity, View) -> Boolean,
@@ -850,6 +815,7 @@ class MainActivity : AppCompatActivity() {
                 binding.titleText.text = schedule.title
                 binding.metaText.text = "${schedule.durationMinutes?.let { "$it min" } ?: "No duration"} · ${categoryName(schedule.categoryId)}"
                 binding.colorStrip.background = GradientDrawable().apply {
+                    // ◀ 이제 부모의 colorOptions 리스트에 에러 없이 정상 접근합니다.
                     color = android.content.res.ColorStateList.valueOf(schedule.color ?: Color.rgb(160, 166, 178))
                     cornerRadius = binding.root.resources.displayMetrics.density * 3
                 }

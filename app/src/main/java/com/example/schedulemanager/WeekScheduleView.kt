@@ -46,7 +46,7 @@ class WeekScheduleView @JvmOverloads constructor(
             field = target
         }
 
-    // ◀ [추가] MainActivity로부터 공휴일 데이터를 전달받을 변수
+    // MainActivity로부터 공휴일 데이터를 전달받을 변수
     var holidays: List<HolidayItem> = emptyList()
         set(value) {
             field = value
@@ -179,31 +179,32 @@ class WeekScheduleView @JvmOverloads constructor(
             if (fillPaint.color != Color.TRANSPARENT && Color.alpha(fillPaint.color) > 0) {
                 canvas.drawRoundRect(rect, corner, corner, fillPaint)
             }
+
+            // 해당 날짜가 공휴일인지 매칭하여 이름을 뽑아옵니다.
+            val targetDateInt = date.year * 10000 + date.monthValue * 100 + date.dayOfMonth
+            val holidayName = holidays.firstOrNull { it.locdate == targetDateInt }?.dateName
+
+            // 헤더 텍스트 조합 분기 (공휴일 이름이 있으면 3줄 레이아웃으로 변경)
             val label = if (focusAmount > 0.5f) {
-                "${dayLabels[day - 1]}\n${date.monthValue}/${date.dayOfMonth}"
+                if (holidayName != null) {
+                    "${dayLabels[day - 1]}\n${date.monthValue}/${date.dayOfMonth}\n$holidayName"
+                } else {
+                    "${dayLabels[day - 1]}\n${date.monthValue}/${date.dayOfMonth}"
+                }
             } else {
                 "${dayLabels[day - 1].take(1)}\n${date.dayOfMonth}"
             }
 
-            // ◀ [수정] 해당 요일이 공휴일인지 판별합니다.
-            val isCurrentDateHoliday = checkIsHoliday(date)
-
-            // ◀ [수정] 포커스 유무와 공휴일 여부를 조합하여 글자 색상을 바꿉니다.
-            val normalColor = if (isCurrentDateHoliday) Color.rgb(214, 48, 49) else Color.rgb(24, 32, 42) // 공휴일이면 기본 빨간색
+            val isCurrentDateHoliday = holidayName != null
+            val normalColor = if (isCurrentDateHoliday) Color.rgb(214, 48, 49) else Color.rgb(24, 32, 42)
 
             val animatedTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-                color = ColorUtils.blendARGB(normalColor, Color.WHITE, focusAmount) // 파란색 카드에 강조 선택되면 흰색글씨로 자동 보간
-                textSize = 13f * density
+                color = ColorUtils.blendARGB(normalColor, Color.WHITE, focusAmount)
+                textSize = 12f * density // 3줄 텍스트 수용을 위해 기본 크기를 12f로 축소
                 typeface = textPaint.typeface
             }
             drawMultilineCentered(canvas, label, rect, animatedTextPaint)
         }
-    }
-
-    // ◀ [추가] 날짜 매칭용 헬퍼 함수
-    private fun checkIsHoliday(date: LocalDate): Boolean {
-        val targetDateInt = date.year * 10000 + date.monthValue * 100 + date.dayOfMonth
-        return holidays.any { it.locdate == targetDateInt }
     }
 
     private fun drawGrid(canvas: Canvas) {
@@ -438,12 +439,20 @@ class WeekScheduleView @JvmOverloads constructor(
         canvas.drawText(text, x, y, paint)
     }
 
+    // 공휴일 이름 드로잉을 위한 멀티라인 계산 구조 최적화 완료
     private fun drawMultilineCentered(canvas: Canvas, text: String, rect: RectF, paint: Paint) {
         val lines = text.split("\n")
         val lineHeight = 14f * density
+        val originalTextSize = paint.textSize
+
         val startY = rect.centerY() - ((lines.size - 1) * lineHeight / 2f) - (paint.descent() + paint.ascent()) / 2f
         lines.forEachIndexed { index, line ->
+            // 세 번째 줄인 공휴일 텍스트 명칭은 가독성을 위해 크기를 조그맣게 축소
+            if (index == 2) {
+                paint.textSize = 10f * density
+            }
             canvas.drawText(line, rect.centerX() - paint.measureText(line) / 2f, startY + index * lineHeight, paint)
+            paint.textSize = originalTextSize // Paint 상태 복원
         }
     }
 
