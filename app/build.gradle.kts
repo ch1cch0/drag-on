@@ -1,3 +1,5 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -6,11 +8,7 @@ plugins {
 
 android {
     namespace = "com.example.schedulemanager"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 36 // 표준 형식으로 간소화
 
     defaultConfig {
         applicationId = "com.example.schedulemanager"
@@ -20,6 +18,19 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        // ◀ [추가] local.properties 파일에서 GO_DATA_API_KEY 읽어와서 BuildConfig에 심기
+        val properties = Properties()
+        val propertiesFile = project.rootProject.file("local.properties")
+        if (propertiesFile.exists()) {
+            propertiesFile.inputStream().use { properties.load(it) }
+        }
+
+        // local.properties에 적어둔 키 값을 가져오고, 없으면 빈 문자열 처리
+        val goDataKey = properties.getProperty("GO_DATA_API_KEY") ?: ""
+
+        //BuildConfigField(데이터타입, 변수명, 값) 형태로 등록
+        buildConfigField("String", "GO_DATA_API_KEY", "\"$goDataKey\"")
     }
 
     buildTypes {
@@ -40,6 +51,7 @@ android {
     }
     buildFeatures {
         viewBinding = true
+        buildConfig = true // ◀ [추가] BuildConfig 클래스를 자동으로 생성하도록 활성화
     }
 }
 

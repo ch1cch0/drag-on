@@ -161,7 +161,10 @@ class MainActivity : AppCompatActivity() {
     private fun fetchHolidaysForMonth(date: LocalDate) {
         val year = date.year
         val monthStr = String.format("%02d", date.monthValue)
-        val apiKey = "MOVVR0Kvjay1WwytGnYzaLykpObq9yLRNwLvLw2wKueXdnJwsi6RdEfhmtybGSpYEQ4mGkF7SMexF3s3Bb5VhQ%3D%3D"
+
+        // ◀ [보안 수정] 하드코딩된 인증키 문자열을 제거하고 BuildConfig 필드로 안전하게 대체했습니다.
+        val apiKey = BuildConfig.GO_DATA_API_KEY
+
 
         lifecycleScope.launch {
             try {
@@ -780,7 +783,6 @@ class MainActivity : AppCompatActivity() {
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
-    // ◀ [수정] inner class 키워드를 추가하여 MainActivity의 멤버 변수(colorOptions 등)를 직접 참조할 수 있도록 변경했습니다.
     private inner class ScheduleAdapter(
         private val onClick: (ScheduleEntity) -> Unit,
         private val onLongClick: (ScheduleEntity, View) -> Boolean,
@@ -815,7 +817,6 @@ class MainActivity : AppCompatActivity() {
                 binding.titleText.text = schedule.title
                 binding.metaText.text = "${schedule.durationMinutes?.let { "$it min" } ?: "No duration"} · ${categoryName(schedule.categoryId)}"
                 binding.colorStrip.background = GradientDrawable().apply {
-                    // ◀ 이제 부모의 colorOptions 리스트에 에러 없이 정상 접근합니다.
                     color = android.content.res.ColorStateList.valueOf(schedule.color ?: Color.rgb(160, 166, 178))
                     cornerRadius = binding.root.resources.displayMetrics.density * 3
                 }
