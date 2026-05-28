@@ -27,6 +27,14 @@ class MonthCalendarView @JvmOverloads constructor(
             field = value
             invalidate()
         }
+
+    // ◀ [추가] MainActivity로부터 공휴일 데이터를 전달받을 변수
+    var holidays: List<HolidayItem> = emptyList()
+        set(value) {
+            field = value
+            invalidate() // 데이터가 들어오면 달력을 다시 그리도록 갱신
+        }
+
     var onDateSelected: ((LocalDate) -> Unit)? = null
     var onMonthChanged: ((LocalDate) -> Unit)? = null
     var onTodaySelected: (() -> Unit)? = null
@@ -169,13 +177,23 @@ class MonthCalendarView @JvmOverloads constructor(
         strokePaint.color = if (isToday && !isSelected) Color.rgb(34, 108, 224) else Color.rgb(222, 227, 235)
         canvas.drawRoundRect(rect, corner, corner, strokePaint)
 
+        // ◀ [수정] 공휴일 여부를 확인하여 텍스트 색상을 분기합니다.
+        val isCurrentDateHoliday = date?.let { checkIsHoliday(it) } ?: false
+
         datePaint.color = when {
             date == null -> Color.TRANSPARENT
             isSelected -> Color.WHITE
+            isCurrentDateHoliday -> Color.rgb(214, 48, 49) // 🔴 공휴일이면 강제로 빨간색 처리
             else -> weekendColor(dayOfWeek) ?: Color.rgb(24, 32, 42)
         }
         val baseline = rect.top + 23f * density
         canvas.drawText(date?.dayOfMonth?.toString().orEmpty(), rect.centerX(), baseline, datePaint)
+    }
+
+    // ◀ [추가] 날짜 매칭용 헬퍼 함수
+    private fun checkIsHoliday(date: LocalDate): Boolean {
+        val targetDateInt = date.year * 10000 + date.monthValue * 100 + date.dayOfMonth
+        return holidays.any { it.locdate == targetDateInt }
     }
 
     private fun dateAt(x: Float, y: Float): LocalDate? {

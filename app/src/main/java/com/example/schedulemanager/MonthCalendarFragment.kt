@@ -41,6 +41,11 @@ class MonthCalendarFragment : Fragment() {
             field = value
             if (_binding != null) render()
         }
+    var holidays: List<HolidayItem> = emptyList()
+        set(value) {
+            field = value
+            if (_binding != null) render()
+        }
 
     override fun onCreateView(inflater: LayoutInflater, container: ViewGroup?, savedInstanceState: Bundle?): View {
         _binding = FragmentMonthCalendarBinding.inflate(inflater, container, false)
@@ -143,6 +148,7 @@ class MonthCalendarFragment : Fragment() {
         fun bind(month: LocalDate) {
             calendarView.displayedMonth = month
             calendarView.selectedDate = selectedDate
+            calendarView.holidays = holidays
             calendarView.onDateSelected = { callbacks()?.onMonthDateSelected(it) }
             calendarView.onMonthChanged = null
             calendarView.onTodaySelected = null

@@ -15,11 +15,7 @@ val localProperties = Properties().apply {
 
 android {
     namespace = "com.example.schedulemanager"
-    compileSdk {
-        version = release(36) {
-            minorApiLevel = 1
-        }
-    }
+    compileSdk = 36 // 표준 형식으로 간소화
 
     defaultConfig {
         applicationId = "com.example.schedulemanager"
@@ -34,6 +30,8 @@ android {
             "KAKAO_REST_API_KEY",
             "\"${localProperties.getProperty("KAKAO_REST_API_KEY", "")}\""
         )
+        val goDataKey = localProperties.getProperty("GO_DATA_API_KEY") ?: ""
+        buildConfigField("String", "GO_DATA_API_KEY", "\"$goDataKey\"")
     }
 
     buildTypes {
@@ -75,4 +73,6 @@ dependencies {
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)
     androidTestImplementation(libs.androidx.junit)
+    implementation(libs.retrofit)
+    implementation(libs.retrofit.converter.gson)
 }
