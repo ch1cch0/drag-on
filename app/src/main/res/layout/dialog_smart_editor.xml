@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="20dp"
+    android:background="#FFFFFF">
+
+    <!-- 1. 스마트 AI 입력 영역 (맨 위에 고정) -->
+    <TextView
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:text="✨ 한 줄 스마트 일정 입력 (AI 추천)"
+        android:textColor="#667085"
+        android:textSize="12sp"
+        android:paddingBottom="4dp"/>
+
+    <EditText
+        android:id="@+id/smartNlpInput"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:hint="예: 내일 팀플 회의"
+        android:singleLine="true"/>
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/smartNlpButton"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="6dp"
+        android:layout_marginBottom="10dp"
+        android:text="NLP 문장 분석 및 AI 추천"/>
+
+    <View
+        android:layout_width="match_parent"
+        android:layout_height="2dp"
+        android:layout_marginBottom="12dp"
+        android:background="#DAE0E9"/>
+
+    <!-- 2. 기존 수동 필드 영역 (스크롤 처리) -->
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="280dp"
+        android:fadeScrollbars="false">
+
+        <LinearLayout
+            android:id="@+id/manualFormContainer"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"/>
+    </ScrollView>
+</LinearLayout>
