@@ -14,6 +14,7 @@ import android.view.DragEvent
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.animation.DecelerateInterpolator
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.GestureDetectorCompat
@@ -22,6 +23,7 @@ import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.data.ScheduleStatus
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
+import kotlin.math.abs
 import kotlin.math.roundToInt
 
 class WeekScheduleView @JvmOverloads constructor(
@@ -41,12 +43,30 @@ class WeekScheduleView @JvmOverloads constructor(
     var focusedDay: Int = LocalDate.now().dayOfWeek.value
         set(value) {
             val target = value.coerceIn(1, 7)
-            if (field == target) return
-            startFocusAnimation(field, target)
+            val pendingStart = pendingFocusAnimationStart
+            pendingFocusAnimationStart = null
+            if (field == target) {
+                if (pendingStart != null) startFocusAnimation(pendingStart, target.toFloat(), continuous = true)
+                return
+            }
+            if (pendingStart != null) {
+                interactiveFocusPosition = null
+                startFocusAnimation(pendingStart, target.toFloat(), continuous = true)
+                field = target
+                return
+            }
+            interactiveFocusPosition?.let {
+                field = target
+                invalidate()
+                return
+            }
+            startFocusAnimation(field.toFloat(), target.toFloat(), continuous = false)
             field = target
         }
     var onScheduleClick: ((ScheduleEntity) -> Unit)? = null
     var onDayFocus: ((LocalDate) -> Unit)? = null
+    var onFocusPositionChanged: ((Float?) -> Unit)? = null
+    var onPinch: ((Float) -> Unit)? = null
     var onScheduleDrop: ((Long, LocalDate, Int, Int) -> Unit)? = null
     var onScheduleDragStarted: ((ScheduleEntity) -> Unit)? = null
     var headerOnly: Boolean = false
@@ -64,21 +84,79 @@ class WeekScheduleView @JvmOverloads constructor(
     private val endMinutes = 24 * 60
     private val corner = 7f * density
     private var dragPreview: DropPreview? = null
-    private var previousFocusedDay = focusedDay
+    private var previousFocusedPosition = focusedDay.toFloat()
     private var focusAnimationProgress = 1f
     private var focusAnimator: ValueAnimator? = null
+    private var useContinuousFocusAnimation = false
+    private var cumulativeScale = 1f
+    private val touchSlop = ViewConfiguration.get(context).scaledTouchSlop
+    private var touchDownX = 0f
+    private var touchDownY = 0f
+    private var swipeHandled = false
+    private var isFocusDragging = false
+    private var focusDragStartDay = focusedDay.toFloat()
+    private var focusDragDayWidth = 1f
+    private var pendingFocusAnimationStart: Float? = null
+    var interactiveFocusPosition: Float? = null
+        set(value) {
+            field = value
+            if (value != null) focusAnimator?.cancel()
+            invalidate()
+        }
+
+    fun prepareFocusSettle(fromPosition: Float) {
+        pendingFocusAnimationStart = fromPosition.coerceIn(1f, 7f)
+    }
+    private val scaleDetector = android.view.ScaleGestureDetector(
+        context,
+        object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            override fun onScaleBegin(detector: android.view.ScaleGestureDetector): Boolean {
+                cumulativeScale = 1f
+                return true
+            }
+
+            override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
+                cumulativeScale *= detector.scaleFactor
+                return true
+            }
+
+            override fun onScaleEnd(detector: android.view.ScaleGestureDetector) {
+                onPinch?.invoke(cumulativeScale)
+            }
+        }
+    )
     private val gestureDetector = GestureDetectorCompat(
         context,
         object : GestureDetector.SimpleOnGestureListener() {
             override fun onDown(e: MotionEvent): Boolean = true
 
             override fun onSingleTapUp(e: MotionEvent): Boolean {
+                interactiveFocusPosition = null
+                pendingFocusAnimationStart = null
+                onFocusPositionChanged?.invoke(null)
                 val schedule = scheduleAt(e.x, e.y)
                 if (schedule != null) {
                     onScheduleClick?.invoke(schedule)
                     return true
                 }
                 dayAt(e.x)?.let { onDayFocus?.invoke(dateForDay(it)) }
+                return true
+            }
+
+            override fun onFling(
+                e1: MotionEvent?,
+                e2: MotionEvent,
+                velocityX: Float,
+                velocityY: Float
+            ): Boolean {
+                if (abs(velocityX) < abs(velocityY) || abs(velocityX) < 350f) return false
+                val nextDay = if (velocityX < 0) {
+                    (focusedDay + 1).coerceAtMost(7)
+                } else {
+                    (focusedDay - 1).coerceAtLeast(1)
+                }
+                if (nextDay == focusedDay) return false
+                onDayFocus?.invoke(dateForDay(nextDay))
                 return true
             }
 
@@ -142,13 +220,77 @@ class WeekScheduleView @JvmOverloads constructor(
     }
 
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        when (event.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                touchDownX = event.x
+                touchDownY = event.y
+                swipeHandled = false
+                isFocusDragging = false
+                focusDragStartDay = focusedDay.toFloat()
+                focusDragDayWidth = columnWidth(focusedDay).coerceAtLeast(1f)
+                parent?.requestDisallowInterceptTouchEvent(true)
+            }
+            MotionEvent.ACTION_MOVE -> {
+                val dx = event.x - touchDownX
+                val dy = event.y - touchDownY
+                if (abs(dx) > touchSlop && abs(dx) > abs(dy)) {
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    isFocusDragging = true
+                    val position = (focusDragStartDay - dx / focusDragDayWidth).coerceIn(1f, 7f)
+                    interactiveFocusPosition = position
+                    onFocusPositionChanged?.invoke(position)
+                } else if (abs(dy) > touchSlop && abs(dy) > abs(dx)) {
+                    parent?.requestDisallowInterceptTouchEvent(false)
+                }
+            }
+            MotionEvent.ACTION_UP -> {
+                swipeHandled = handleSwipeRelease(event.x - touchDownX, event.y - touchDownY)
+            }
+            MotionEvent.ACTION_CANCEL -> {
+                isFocusDragging = false
+                interactiveFocusPosition = null
+                onFocusPositionChanged?.invoke(null)
+            }
+        }
+        if (event.pointerCount > 1 || event.actionMasked == MotionEvent.ACTION_POINTER_DOWN) {
+            parent?.requestDisallowInterceptTouchEvent(true)
+        } else if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            parent?.requestDisallowInterceptTouchEvent(false)
+        }
         if (headerOnly) {
-            if (event.action == MotionEvent.ACTION_UP) {
+            scaleDetector.onTouchEvent(event)
+            if (event.action == MotionEvent.ACTION_UP && !swipeHandled) {
                 dayAt(event.x)?.let { onDayFocus?.invoke(dateForDay(it)) }
             }
             return true
         }
+        scaleDetector.onTouchEvent(event)
         gestureDetector.onTouchEvent(event)
+        return true
+    }
+
+    private fun handleSwipeDistance(dx: Float, dy: Float): Boolean {
+        return handleSwipeRelease(dx, dy)
+    }
+
+    private fun handleSwipeRelease(dx: Float, dy: Float): Boolean {
+        val position = interactiveFocusPosition.takeIf { isFocusDragging }
+        isFocusDragging = false
+        if (position == null && (abs(dx) < 48f * density || abs(dx) < abs(dy) * 1.2f)) return false
+        val nextDay = (position ?: (focusDragStartDay - dx / focusDragDayWidth))
+            .roundToInt()
+            .coerceIn(1, 7)
+        if (position != null) prepareFocusSettle(position)
+        if (position != null) onFocusPositionChanged?.invoke(position)
+        interactiveFocusPosition = null
+        if (nextDay == focusedDay) {
+            if (position != null) startFocusAnimation(position, nextDay.toFloat(), continuous = true)
+            pendingFocusAnimationStart = null
+            onFocusPositionChanged?.invoke(null)
+            return position != null
+        }
+        onDayFocus?.invoke(dateForDay(nextDay))
+        onFocusPositionChanged?.invoke(null)
         return true
     }
 
@@ -255,7 +397,7 @@ class WeekScheduleView @JvmOverloads constructor(
                     schedule.color ?: Color.rgb(34, 108, 224)
                 }
                 canvas.drawRoundRect(rect, corner, corner, fillPaint)
-                if (day == focusedDay) {
+                if (day == visualFocusedDay()) {
                     when {
                         duration <= 15 -> Unit
                         duration <= 30 -> canvas.drawText(
@@ -354,30 +496,51 @@ class WeekScheduleView @JvmOverloads constructor(
     private fun columnWidth(day: Int): Float = width / 12f * columnWeight(day)
 
     private fun columnWeight(day: Int): Float {
-        if (focusAnimationProgress >= 1f || previousFocusedDay == focusedDay) {
+        interactiveFocusPosition?.let { position ->
+            val influence = (1f - abs(day - position)).coerceIn(0f, 1f)
+            return 1f + 3f * influence
+        }
+        if (focusAnimationProgress >= 1f || previousFocusedPosition == focusedDay.toFloat()) {
             return if (day == focusedDay) 4f else 1f
         }
-        return when (day) {
-            previousFocusedDay -> 4f + (1f - 4f) * focusAnimationProgress
-            focusedDay -> 1f + (4f - 1f) * focusAnimationProgress
-            else -> 1f
+        if (!useContinuousFocusAnimation) {
+            return when (day) {
+                previousFocusedPosition.roundToInt() -> 4f + (1f - 4f) * focusAnimationProgress
+                focusedDay -> 1f + (4f - 1f) * focusAnimationProgress
+                else -> 1f
+            }
         }
+        val animatedPosition = previousFocusedPosition + (focusedDay - previousFocusedPosition) * focusAnimationProgress
+        val influence = (1f - abs(day - animatedPosition)).coerceIn(0f, 1f)
+        return 1f + 3f * influence
     }
 
     private fun focusAmount(day: Int): Float {
-        if (focusAnimationProgress >= 1f || previousFocusedDay == focusedDay) {
+        interactiveFocusPosition?.let { position ->
+            return (1f - abs(day - position)).coerceIn(0f, 1f)
+        }
+        if (focusAnimationProgress >= 1f || previousFocusedPosition == focusedDay.toFloat()) {
             return if (day == focusedDay) 1f else 0f
         }
-        return when (day) {
-            previousFocusedDay -> 1f - focusAnimationProgress
-            focusedDay -> focusAnimationProgress
-            else -> 0f
+        if (!useContinuousFocusAnimation) {
+            return when (day) {
+                previousFocusedPosition.roundToInt() -> 1f - focusAnimationProgress
+                focusedDay -> focusAnimationProgress
+                else -> 0f
+            }
         }
+        val animatedPosition = previousFocusedPosition + (focusedDay - previousFocusedPosition) * focusAnimationProgress
+        return (1f - abs(day - animatedPosition)).coerceIn(0f, 1f)
     }
 
-    private fun startFocusAnimation(fromDay: Int, toDay: Int) {
+    private fun visualFocusedDay(): Int {
+        return interactiveFocusPosition?.roundToInt()?.coerceIn(1, 7) ?: focusedDay
+    }
+
+    private fun startFocusAnimation(fromPosition: Float, toPosition: Float, continuous: Boolean) {
         focusAnimator?.cancel()
-        previousFocusedDay = fromDay
+        previousFocusedPosition = fromPosition
+        useContinuousFocusAnimation = continuous
         focusAnimationProgress = 0f
         focusAnimator = ValueAnimator.ofFloat(0f, 1f).apply {
             duration = 180L

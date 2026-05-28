@@ -8,7 +8,7 @@ import androidx.room.TypeConverters
 
 @Database(
     entities = [ScheduleEntity::class, CategoryEntity::class],
-    version = 3,
+    version = 5,
     exportSchema = false
 )
 @TypeConverters(Converters::class)

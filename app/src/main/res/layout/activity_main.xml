@@ -17,23 +17,22 @@
         android:paddingStart="12dp"
         android:paddingTop="16dp"
         android:paddingEnd="12dp"
-        android:paddingBottom="104dp">
+        android:paddingBottom="92dp">
 
-            <TextView
-                android:id="@+id/titleText"
+        <TextView
+            android:id="@+id/titleText"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center"
+            android:gravity="start"
             android:text="Weekly Schedule"
-            android:textColor="@color/text_primary"
-            android:textSize="24sp"
-            android:textStyle="bold" />
+            android:textColor="#7A8491"
+            android:textSize="20sp" />
 
         <FrameLayout
             android:id="@+id/scheduleSurface"
             android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_marginTop="14dp"
+            android:layout_marginTop="10dp"
             android:layout_weight="1">
 
             <HorizontalScrollView
@@ -68,20 +67,11 @@
                 </LinearLayout>
             </HorizontalScrollView>
 
-            <ScrollView
-                android:id="@+id/calendarScroll"
+            <androidx.fragment.app.FragmentContainerView
+                android:id="@+id/monthFragmentContainer"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:fillViewport="true"
-                android:overScrollMode="never"
-                android:visibility="gone">
-
-                <com.example.schedulemanager.MonthCalendarView
-                    android:id="@+id/monthCalendar"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:padding="6dp" />
-            </ScrollView>
+                android:visibility="gone" />
         </FrameLayout>
     </LinearLayout>
 
