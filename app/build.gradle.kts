@@ -31,6 +31,7 @@ android {
 
         //BuildConfigField(데이터타입, 변수명, 값) 형태로 등록
         buildConfigField("String", "GO_DATA_API_KEY", "\"$goDataKey\"")
+        buildConfigField("String", "AI_SERVER_URL", "\"https://drag-on-o2gw.onrender.com\"")
     }
 
     buildTypes {
