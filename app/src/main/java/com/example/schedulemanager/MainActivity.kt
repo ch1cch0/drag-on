@@ -2,7 +2,10 @@ package com.example.schedulemanager
 
 import android.app.AlertDialog
 import android.content.ClipData
+import android.graphics.Canvas
 import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
 import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
@@ -27,6 +30,7 @@ import androidx.core.view.GestureDetectorCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.ItemTouchHelper
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.example.schedulemanager.data.AppDatabase
@@ -108,6 +112,62 @@ class MainActivity : AppCompatActivity() {
         )
         binding.inboxRecycler.layoutManager = LinearLayoutManager(this)
         binding.inboxRecycler.adapter = inboxAdapter
+
+        // 인박스 리사이클러뷰에 왼쪽 스와이프 삭제 기능 바인딩
+        val swipeHandler = object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
+            override fun onMove(
+                recyclerView: RecyclerView,
+                viewHolder: RecyclerView.ViewHolder,
+                target: RecyclerView.ViewHolder
+            ): Boolean = false
+
+            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
+                val position = viewHolder.adapterPosition
+                val targetSchedule = inboxAdapter.getScheduleAt(position) ?: return
+
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Delete schedule?")
+                    .setMessage(targetSchedule.title)
+                    .setNegativeButton("Cancel") { _, _ ->
+                        inboxAdapter.notifyItemChanged(position)
+                    }
+                    .setPositiveButton("Delete") { _, _ ->
+                        lifecycleScope.launch {
+                            repository.deleteSchedule(targetSchedule)
+                        }
+                    }
+                    .setOnCancelListener {
+                        inboxAdapter.notifyItemChanged(position)
+                    }
+                    .show()
+            }
+
+            override fun onChildDraw(
+                c: Canvas, recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder,
+                dX: Float, dY: Float, actionState: Int, isCurrentlyActive: Boolean
+            ) {
+                val itemView = viewHolder.itemView
+                if (dX < 0) {
+                    val paint = Paint().apply { color = Color.rgb(214, 48, 49) }
+                    val background = RectF(
+                        itemView.right.toFloat() + dX, itemView.top.toFloat(),
+                        itemView.right.toFloat(), itemView.bottom.toFloat()
+                    )
+                    c.drawRoundRect(background, dp(10).toFloat(), dp(10).toFloat(), paint)
+
+                    val textPaint = Paint().apply {
+                        color = Color.WHITE
+                        textSize = dp(14).toFloat()
+                        typeface = Typeface.DEFAULT_BOLD
+                        textAlign = Paint.Align.CENTER
+                    }
+                    val textY = itemView.top.toFloat() + (itemView.height.toFloat() / 2) - ((textPaint.descent() + textPaint.ascent()) / 2)
+                    c.drawText("삭제", itemView.right.toFloat() - dp(32), textY, textPaint)
+                }
+                super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
+            }
+        }
+        ItemTouchHelper(swipeHandler).attachToRecyclerView(binding.inboxRecycler)
 
         binding.addButton.setOnClickListener { showScheduleEditor(null) }
         binding.categoryButton.setOnClickListener { showCategoryManager() }
@@ -274,8 +334,6 @@ class MainActivity : AppCompatActivity() {
         binding.titleText.text = "${selectedWeekStart.format(shortDateFormatter)} - ${weekEnd.format(shortDateFormatter)}"
         binding.weekHeader.selectedWeekStart = selectedWeekStart
         binding.weekHeader.focusedDay = focusedDay
-
-        // ◀ [공휴일 엔진 복구] 주간 상단 컴포넌트에 공휴일 데이터 바인딩 주입 완료
         binding.weekHeader.holidays = currentHolidays
 
         binding.weekSchedule.schedules = schedules
@@ -287,8 +345,6 @@ class MainActivity : AppCompatActivity() {
         binding.titleText.text = displayedMonth.format(monthFormatter)
         binding.monthCalendar.displayedMonth = displayedMonth
         binding.monthCalendar.selectedDate = selectedDate
-
-        // ◀ [공휴일 엔진 복구] 달력 컴포넌트에 공휴일 데이터 바인딩 주입 완료
         binding.monthCalendar.holidays = currentHolidays
     }
 
@@ -311,7 +367,6 @@ class MainActivity : AppCompatActivity() {
         val data = ClipData.newPlainText("scheduleId", schedule.id.toString())
         val shadow = View.DragShadowBuilder(itemView)
         itemView.startDragAndDrop(data, shadow, schedule.id, 0)
-        Toast.makeText(this, "Drop on a time slot.", Toast.LENGTH_SHORT).show()
         return true
     }
 
@@ -460,16 +515,6 @@ class MainActivity : AppCompatActivity() {
 
                             aiRecommendedDate = targetDate
                             aiRecommendedMinutes = res.recommendedTimeSlot
-
-                            val recHour = res.recommendedTimeSlot / 60
-                            val recMin = res.recommendedTimeSlot % 60
-                            val dayText = when (targetDate.dayOfWeek.value) {
-                                1 -> "월" 2 -> "화" 3 -> "수" 4 -> "목" 5 -> "금" 6 -> "토" else -> "일"
-                            }
-
-                            Toast.makeText(this@MainActivity,
-                                "🤖 AI 추천 피드백 수신 완료:\n${dayText}요일 ${String.format("%02d:%02d", recHour, recMin)} 최적 확률 매칭",
-                                Toast.LENGTH_LONG).show()
                         }
                     }
                 } catch (e: Exception) {
@@ -480,35 +525,51 @@ class MainActivity : AppCompatActivity() {
             }
         }
 
-        AlertDialog.Builder(this)
+        val neutralText = if (schedule != null) "DELETE" else "시간표에 즉시 자동 배치"
+
+        val alertDialog = AlertDialog.Builder(this)
             .setTitle(if (schedule == null) "Add schedule" else "Edit schedule")
             .setView(dialogView)
             .setNegativeButton("Cancel", null)
-            .setNeutralButton("시간표에 즉시 자동 배치") { dialog, _ ->
-                val title = titleInput.text.toString().trim()
-                if (title.isBlank() || aiRecommendedDate == null || aiRecommendedMinutes == null) {
-                    Toast.makeText(this, "AI 추천 정보가 없습니다. 분석을 먼저 완료해 주세요.", Toast.LENGTH_LONG).show()
-                    return@setNeutralButton
+            .setNeutralButton(neutralText) { dialog, _ ->
+                if (schedule == null) {
+                    val title = titleInput.text.toString().trim()
+                    if (title.isBlank() || aiRecommendedDate == null || aiRecommendedMinutes == null) {
+                        Toast.makeText(this, "AI 추천 정보가 없습니다. 분석을 먼저 완료해 주세요.", Toast.LENGTH_LONG).show()
+                        return@setNeutralButton
+                    }
+
+                    val selectedCategory = categorySpinner.selectedItemPosition.takeIf { it > 0 }?.let { categories[it - 1] }
+                    val duration = (hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value)
+
+                    val entity = ScheduleEntity(
+                        id = 0, title = title, categoryId = selectedCategory?.id,
+                        color = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
+                        isRepeat = repeatModeSpinner.selectedItemPosition > 1,
+                        repeatType = when (repeatModeSpinner.selectedItemPosition) { 2 -> RepeatType.WEEKLY 3 -> RepeatType.DAILY else -> RepeatType.NONE },
+                        durationMinutes = if (duration > 0) duration else 60, deadline = selectedDeadline?.toEpochDay(),
+                        status = ScheduleStatus.SCHEDULED,
+                        scheduledDate = aiRecommendedDate!!.toEpochDay(), dayOfWeek = aiRecommendedDate!!.dayOfWeek.value, startTimeMinutes = aiRecommendedMinutes!!
+                    )
+
+                    lifecycleScope.launch {
+                        repository.saveSchedule(entity)
+                        focusDate(aiRecommendedDate!!)
+                    }
+                    dialog.dismiss()
+                } else {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Delete schedule?")
+                        .setMessage(schedule.title)
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Delete") { _, _ ->
+                            lifecycleScope.launch {
+                                repository.deleteSchedule(schedule)
+                                dialog.dismiss()
+                            }
+                        }
+                        .show()
                 }
-
-                val selectedCategory = categorySpinner.selectedItemPosition.takeIf { it > 0 }?.let { categories[it - 1] }
-                val duration = (hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value)
-
-                val entity = ScheduleEntity(
-                    id = schedule?.id ?: 0, title = title, categoryId = selectedCategory?.id,
-                    color = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
-                    isRepeat = repeatModeSpinner.selectedItemPosition > 1,
-                    repeatType = when (repeatModeSpinner.selectedItemPosition) { 2 -> RepeatType.WEEKLY 3 -> RepeatType.DAILY else -> RepeatType.NONE },
-                    durationMinutes = if (duration > 0) duration else 60, deadline = selectedDeadline?.toEpochDay(),
-                    status = ScheduleStatus.SCHEDULED,
-                    scheduledDate = aiRecommendedDate!!.toEpochDay(), dayOfWeek = aiRecommendedDate!!.dayOfWeek.value, startTimeMinutes = aiRecommendedMinutes!!
-                )
-
-                lifecycleScope.launch {
-                    repository.saveSchedule(entity)
-                    focusDate(aiRecommendedDate!!)
-                }
-                dialog.dismiss()
             }
             .setPositiveButton("Save (Inbox로 저장)") { dialog, _ ->
                 val title = titleInput.text.toString().trim()
@@ -533,7 +594,12 @@ class MainActivity : AppCompatActivity() {
                 dialog.dismiss()
             }
             .create()
-            .show()
+
+        alertDialog.show()
+
+        if (schedule != null) {
+            alertDialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(Color.rgb(214, 48, 49))
+        }
     }
 
     private fun showScheduleDetail(schedule: ScheduleEntity) {
@@ -833,6 +899,10 @@ class MainActivity : AppCompatActivity() {
             items.clear()
             items.addAll(newItems)
             notifyDataSetChanged()
+        }
+
+        fun getScheduleAt(position: Int): ScheduleEntity? {
+            return items.getOrNull(position)
         }
 
         override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ScheduleViewHolder {
