@@ -19,15 +19,37 @@
         android:paddingEnd="12dp"
         android:paddingBottom="104dp">
 
-            <TextView
-                android:id="@+id/titleText"
+        <!-- 상단 헤더 영역: 타이틀 중앙 정렬 및 우측 상단 파란색 Today 버튼 배치 -->
+        <RelativeLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:gravity="center"
-            android:text="Weekly Schedule"
-            android:textColor="@color/text_primary"
-            android:textSize="24sp"
-            android:textStyle="bold" />
+            android:layout_marginTop="4dp"
+            android:paddingStart="4dp"
+            android:paddingEnd="4dp">
+
+            <TextView
+                android:id="@+id/titleText"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_centerInParent="true"
+                android:gravity="center"
+                android:text="Weekly Schedule"
+                android:textColor="@color/text_primary"
+                android:textSize="24sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/todayButton"
+                style="@style/Widget.MaterialComponents.Button.TextButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_alignParentEnd="true"
+                android:layout_centerVertical="true"
+                android:text="Today"
+                android:textColor="#226CE0"
+                android:textSize="15sp"
+                android:textStyle="bold" />
+        </RelativeLayout>
 
         <FrameLayout
             android:id="@+id/scheduleSurface"
@@ -36,6 +58,7 @@
             android:layout_marginTop="14dp"
             android:layout_weight="1">
 
+            <!-- 주간 시간표 내부 스크롤 뷰 -->
             <HorizontalScrollView
                 android:id="@+id/weekScroll"
                 android:layout_width="match_parent"
@@ -48,6 +71,7 @@
                     android:layout_height="match_parent"
                     android:orientation="vertical">
 
+                    <!-- ◀ 원래대로 WeekScheduleView 통합 컴포넌트를 사용하도록 복구 완료 -->
                     <com.example.schedulemanager.WeekScheduleView
                         android:id="@+id/weekHeader"
                         android:layout_width="match_parent"
@@ -68,6 +92,7 @@
                 </LinearLayout>
             </HorizontalScrollView>
 
+            <!-- 월간 캘린더 내부 스크롤 뷰 (기본 숨김) -->
             <ScrollView
                 android:id="@+id/calendarScroll"
                 android:layout_width="match_parent"
@@ -85,28 +110,29 @@
         </FrameLayout>
     </LinearLayout>
 
+    <!-- 하단 Inbox 슬라이드 시트 영역 -->
     <LinearLayout
         android:id="@+id/inboxSheet"
         android:layout_width="match_parent"
-        android:layout_height="420dp"
+        android:layout_height="460dp"
         android:background="@drawable/bg_bottom_sheet"
-        android:elevation="10dp"
+        android:elevation="16dp"
         android:orientation="vertical"
         android:padding="16dp"
-        app:behavior_hideable="false"
-        app:behavior_peekHeight="92dp"
+        app:behavior_peekHeight="88dp"
         app:layout_behavior="com.google.android.material.bottomsheet.BottomSheetBehavior">
 
+        <!-- 드래그 핸들 바 코어 -->
         <View
-            android:layout_width="44dp"
+            android:layout_width="36dp"
             android:layout_height="4dp"
             android:layout_gravity="center_horizontal"
-            android:background="@color/line" />
+            android:layout_marginBottom="12dp"
+            android:background="#DAE0E9" />
 
         <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="14dp"
             android:gravity="center_vertical"
             android:orientation="horizontal">
 
@@ -115,7 +141,7 @@
                 android:layout_width="0dp"
                 android:layout_height="wrap_content"
                 android:layout_weight="1"
-                android:text="@string/inbox"
+                android:text="Inbox (0)"
                 android:textColor="@color/text_primary"
                 android:textSize="20sp"
                 android:textStyle="bold" />
@@ -125,7 +151,7 @@
                 style="?attr/materialButtonOutlinedStyle"
                 android:layout_width="48dp"
                 android:layout_height="48dp"
-                android:contentDescription="@string/categories"
+                android:contentDescription="Categories"
                 android:text=""
                 app:icon="@drawable/ic_menu_24"
                 app:iconGravity="textStart"
@@ -136,7 +162,7 @@
                 android:layout_width="48dp"
                 android:layout_height="48dp"
                 android:layout_marginStart="8dp"
-                android:contentDescription="@string/add_schedule"
+                android:contentDescription="Add schedule"
                 android:text=""
                 app:icon="@drawable/ic_add_24"
                 app:iconGravity="textStart"
