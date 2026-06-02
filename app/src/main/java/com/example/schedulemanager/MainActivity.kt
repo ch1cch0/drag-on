@@ -169,6 +169,17 @@ class MainActivity : AppCompatActivity() {
         }
         ItemTouchHelper(swipeHandler).attachToRecyclerView(binding.inboxRecycler)
 
+        // 우측 상단 Today 버튼 클릭 리스너 결합 연동
+        binding.todayButton.setOnClickListener {
+            selectedDate = LocalDate.now()
+            selectedWeekStart = weekStart(selectedDate)
+            focusedDay = selectedDate.dayOfWeek.value
+            displayedMonth = selectedDate.withDayOfMonth(1)
+
+            renderMainSurface()
+            fetchHolidaysForMonth(displayedMonth)
+        }
+
         binding.addButton.setOnClickListener { showScheduleEditor(null) }
         binding.categoryButton.setOnClickListener { showCategoryManager() }
         binding.weekHeader.headerOnly = true
@@ -334,6 +345,8 @@ class MainActivity : AppCompatActivity() {
         binding.titleText.text = "${selectedWeekStart.format(shortDateFormatter)} - ${weekEnd.format(shortDateFormatter)}"
         binding.weekHeader.selectedWeekStart = selectedWeekStart
         binding.weekHeader.focusedDay = focusedDay
+
+        // ◀ [공휴일 바인딩] 복구된 주간 요일 통합 컴포넌트에 공휴일 주입 완료
         binding.weekHeader.holidays = currentHolidays
 
         binding.weekSchedule.schedules = schedules
@@ -531,46 +544,7 @@ class MainActivity : AppCompatActivity() {
             .setTitle(if (schedule == null) "Add schedule" else "Edit schedule")
             .setView(dialogView)
             .setNegativeButton("Cancel", null)
-            .setNeutralButton(neutralText) { dialog, _ ->
-                if (schedule == null) {
-                    val title = titleInput.text.toString().trim()
-                    if (title.isBlank() || aiRecommendedDate == null || aiRecommendedMinutes == null) {
-                        Toast.makeText(this, "AI 추천 정보가 없습니다. 분석을 먼저 완료해 주세요.", Toast.LENGTH_LONG).show()
-                        return@setNeutralButton
-                    }
-
-                    val selectedCategory = categorySpinner.selectedItemPosition.takeIf { it > 0 }?.let { categories[it - 1] }
-                    val duration = (hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value)
-
-                    val entity = ScheduleEntity(
-                        id = 0, title = title, categoryId = selectedCategory?.id,
-                        color = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
-                        isRepeat = repeatModeSpinner.selectedItemPosition > 1,
-                        repeatType = when (repeatModeSpinner.selectedItemPosition) { 2 -> RepeatType.WEEKLY 3 -> RepeatType.DAILY else -> RepeatType.NONE },
-                        durationMinutes = if (duration > 0) duration else 60, deadline = selectedDeadline?.toEpochDay(),
-                        status = ScheduleStatus.SCHEDULED,
-                        scheduledDate = aiRecommendedDate!!.toEpochDay(), dayOfWeek = aiRecommendedDate!!.dayOfWeek.value, startTimeMinutes = aiRecommendedMinutes!!
-                    )
-
-                    lifecycleScope.launch {
-                        repository.saveSchedule(entity)
-                        focusDate(aiRecommendedDate!!)
-                    }
-                    dialog.dismiss()
-                } else {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle("Delete schedule?")
-                        .setMessage(schedule.title)
-                        .setNegativeButton("Cancel", null)
-                        .setPositiveButton("Delete") { _, _ ->
-                            lifecycleScope.launch {
-                                repository.deleteSchedule(schedule)
-                                dialog.dismiss()
-                            }
-                        }
-                        .show()
-                }
-            }
+            .setNeutralButton(neutralText, null)
             .setPositiveButton("Save (Inbox로 저장)") { dialog, _ ->
                 val title = titleInput.text.toString().trim()
                 if (title.isBlank()) {
@@ -597,8 +571,52 @@ class MainActivity : AppCompatActivity() {
 
         alertDialog.show()
 
-        if (schedule != null) {
-            alertDialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.setTextColor(Color.rgb(214, 48, 49))
+        alertDialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.apply {
+            if (schedule != null) {
+                setTextColor(Color.rgb(214, 48, 49))
+            }
+
+            setOnClickListener {
+                if (schedule == null) {
+                    val title = titleInput.text.toString().trim()
+
+                    if (title.isBlank() || aiRecommendedDate == null || aiRecommendedMinutes == null) {
+                        Toast.makeText(this@MainActivity, "AI 추천 정보가 없습니다. 분석을 먼저 완료해 주세요.", Toast.LENGTH_LONG).show()
+                        return@setOnClickListener
+                    }
+
+                    val selectedCategory = categorySpinner.selectedItemPosition.takeIf { it > 0 }?.let { categories[it - 1] }
+                    val duration = (hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value)
+
+                    val entity = ScheduleEntity(
+                        id = 0, title = title, categoryId = selectedCategory?.id,
+                        color = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
+                        isRepeat = repeatModeSpinner.selectedItemPosition > 1,
+                        repeatType = when (repeatModeSpinner.selectedItemPosition) { 2 -> RepeatType.WEEKLY 3 -> RepeatType.DAILY else -> RepeatType.NONE },
+                        durationMinutes = if (duration > 0) duration else 60, deadline = selectedDeadline?.toEpochDay(),
+                        status = ScheduleStatus.SCHEDULED,
+                        scheduledDate = aiRecommendedDate!!.toEpochDay(), dayOfWeek = aiRecommendedDate!!.dayOfWeek.value, startTimeMinutes = aiRecommendedMinutes!!
+                    )
+
+                    lifecycleScope.launch {
+                        repository.saveSchedule(entity)
+                        focusDate(aiRecommendedDate!!)
+                    }
+                    alertDialog.dismiss()
+                } else {
+                    AlertDialog.Builder(this@MainActivity)
+                        .setTitle("Delete schedule?")
+                        .setMessage(schedule.title)
+                        .setNegativeButton("Cancel", null)
+                        .setPositiveButton("Delete") { _, _ ->
+                            lifecycleScope.launch {
+                                repository.deleteSchedule(schedule)
+                                alertDialog.dismiss()
+                            }
+                        }
+                        .show()
+                }
+            }
         }
     }
 
