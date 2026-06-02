@@ -157,7 +157,8 @@ class MainActivity : AppCompatActivity() {
             .build()
         holidayService = retrofitHoliday.create(HolidayService::class.java)
 
-        val aiBaseUrl = "http://10.0.2.2:8000/"
+        val aiBaseUrl = BuildConfig.AI_SERVER_URL
+
         val retrofitAi = Retrofit.Builder()
             .baseUrl(aiBaseUrl)
             .addConverterFactory(GsonConverterFactory.create())
