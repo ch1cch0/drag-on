@@ -53,12 +53,13 @@ import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import kotlin.math.abs
 import kotlin.coroutines.resume
-import kotlin.coroutines.suspendCoroutine
 
 class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var binding: ActivityMainBinding
@@ -690,6 +691,8 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             val location = currentLocationOrNull()
             if (location == null) {
                 Toast.makeText(this@MainActivity, "Searching without current location.", Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(this@MainActivity, "Searching near current location.", Toast.LENGTH_SHORT).show()
             }
             searchLocations(query, onSelected, location)
         }
@@ -732,27 +735,40 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     }
 
-    private suspend fun currentLocationOrNull(): Location? = suspendCoroutine { continuation ->
+    private suspend fun currentLocationOrNull(): Location? {
         if (!hasLocationPermission()) {
-            continuation.resume(null)
-            return@suspendCoroutine
+            return null
         }
+        return withTimeoutOrNull(1200) {
+            cachedOrCurrentLocation()
+        }
+    }
+
+    private suspend fun cachedOrCurrentLocation(): Location? = suspendCancellableCoroutine { continuation ->
         try {
             locationClient.lastLocation
                 .addOnSuccessListener { cachedLocation ->
+                    if (!continuation.isActive) return@addOnSuccessListener
                     if (cachedLocation != null) {
                         continuation.resume(cachedLocation)
                     } else {
                         val tokenSource = CancellationTokenSource()
+                        continuation.invokeOnCancellation { tokenSource.cancel() }
                         locationClient
                             .getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, tokenSource.token)
-                            .addOnSuccessListener { continuation.resume(it) }
-                            .addOnFailureListener { continuation.resume(null) }
+                            .addOnSuccessListener {
+                                if (continuation.isActive) continuation.resume(it)
+                            }
+                            .addOnFailureListener {
+                                if (continuation.isActive) continuation.resume(null)
+                            }
                     }
                 }
-                .addOnFailureListener { continuation.resume(null) }
+                .addOnFailureListener {
+                    if (continuation.isActive) continuation.resume(null)
+                }
         } catch (_: SecurityException) {
-            continuation.resume(null)
+            if (continuation.isActive) continuation.resume(null)
         }
     }
 
