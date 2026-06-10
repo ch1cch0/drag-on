@@ -11,7 +11,6 @@ import android.graphics.drawable.GradientDrawable
 import android.location.Location
 import android.net.Uri
 import android.os.Bundle
-import android.util.Log
 import android.view.GestureDetector
 import android.view.LayoutInflater
 import android.view.MotionEvent
@@ -50,16 +49,8 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.button.MaterialButton
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONObject
-import java.net.HttpURLConnection
-import java.net.URLEncoder
-import java.net.URL
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
@@ -79,7 +70,8 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var monthCalendarFragment: MonthCalendarFragment
     private var pendingLocationSearch: PendingLocationSearch? = null
 
-    private lateinit var holidayService: HolidayService
+    private lateinit var holidayRepository: HolidayRepository
+    private lateinit var locationSearchRepository: LocationSearchRepository
 
     private var schedules: List<ScheduleEntity> = emptyList()
     private var categories: List<CategoryEntity> = emptyList()
@@ -90,7 +82,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private var calendarMode = false
     private var cumulativeScale = 1f
 
-    private var currentHolidays: List<HolidayItem> = emptyList()
+    private var currentHolidays: List<Holiday> = emptyList()
 
     private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
     private val deadlineFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
@@ -122,7 +114,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                 searchLocations(pending.query, pending.onSelected, null)
             }
         }
-        initRetrofit()
+        initExternalRepositories()
 
         bottomSheetBehavior = BottomSheetBehavior.from(binding.inboxSheet)
         val contentBasePaddingBottom = binding.contentContainer.paddingBottom
@@ -191,53 +183,21 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         fetchHolidaysForMonth(displayedMonth)
     }
 
-    private fun initRetrofit() {
-        val retrofitHoliday = Retrofit.Builder()
-            .baseUrl("https://apis.data.go.kr/")
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-        holidayService = retrofitHoliday.create(HolidayService::class.java)
-
+    private fun initExternalRepositories() {
+        holidayRepository = HolidayRepository(BuildConfig.GO_DATA_API_KEY)
+        locationSearchRepository = LocationSearchRepository(BuildConfig.KAKAO_REST_API_KEY)
     }
 
     private fun fetchHolidaysForMonth(date: LocalDate) {
-        val year = date.year
-        val monthStr = String.format("%02d", date.monthValue)
-        val apiKey = BuildConfig.GO_DATA_API_KEY
-
-        Log.d("HolidayAPI", "현재 주입된 API KEY: $apiKey")
-
         lifecycleScope.launch {
-            try {
-                val response = withContext(Dispatchers.IO) {
-                    holidayService.getHolidays(
-                        serviceKey = apiKey,
-                        solYear = year,
-                        solMonth = monthStr
-                    ).execute()
-                }
-
-                if (response.isSuccessful) {
-                    val holidayList = response.body()?.response?.body?.items?.item
-                    currentHolidays = holidayList ?: emptyList()
-
-                    if (!currentHolidays.isNullOrEmpty()) {
-                        currentHolidays.forEach { holiday ->
-                            Log.d("HolidayAPI", "공휴일 발견 -> 이름: ${holiday.dateName}, 날짜: ${holiday.locdate}")
-                        }
-                    } else {
-                        Log.d("HolidayAPI", "${year}년 ${monthStr}월에는 공휴일이 없습니다.")
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        renderMainSurface()
-                    }
-
-                } else {
-                    Log.e("HolidayAPI", "API 요청 실패 코드: ${response.code()}")
-                }
-            } catch (e: Exception) {
-                Log.e("HolidayAPI", "통신 중 오류 발생: ${e.message}", e)
+            val result = runCatching { holidayRepository.holidaysForMonth(date) }
+            if (result.isSuccess) {
+                currentHolidays = result.getOrDefault(emptyList())
+                renderMainSurface()
+            } else {
+                currentHolidays = emptyList()
+                renderMainSurface()
+                Toast.makeText(this@MainActivity, "Holiday data could not be loaded.", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -682,19 +642,23 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             )
         }
 
-        AlertDialog.Builder(this)
+        val dialog = AlertDialog.Builder(this)
             .setTitle(if (schedule == null) "Add schedule" else "Edit schedule")
             .setView(scrollWrap(form))
             .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save") { dialog, _ ->
-                val entity = buildSchedule() ?: return@setPositiveButton
+            .setPositiveButton("Save", null)
+            .create()
+        dialog.setOnShowListener {
+            dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
+            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
+                val entity = buildSchedule() ?: return@setOnClickListener
                 lifecycleScope.launch { repository.saveSchedule(entity) }
                 bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
                 if (entity.status == ScheduleStatus.INBOX) animateIntoInbox()
                 dialog.dismiss()
             }
-            .create()
-            .show()
+        }
+        dialog.show()
     }
 
     private fun showLocationSearch(query: String, onSelected: (KakaoPlace) -> Unit) {
@@ -731,7 +695,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
 
     private fun searchLocations(query: String, onSelected: (KakaoPlace) -> Unit, location: Location?) {
         lifecycleScope.launch {
-            val result = runCatching { searchKakaoPlaces(query, location) }
+            val result = runCatching { locationSearchRepository.search(query, location) }
             val places = result.getOrNull().orEmpty()
             if (result.isFailure) {
                 Toast.makeText(this@MainActivity, "Location search failed.", Toast.LENGTH_SHORT).show()
@@ -807,54 +771,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                 },
                 LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260))
             )
-        }
-    }
-
-    private suspend fun searchKakaoPlaces(query: String, location: Location?): List<KakaoPlace> = withContext(Dispatchers.IO) {
-        val encodedQuery = URLEncoder.encode(query, Charsets.UTF_8.name())
-        val locationQuery = location?.let {
-            "&x=${it.longitude}&y=${it.latitude}&radius=20000&sort=distance"
-        }.orEmpty()
-        val url = URL("https://dapi.kakao.com/v2/local/search/keyword.json?query=$encodedQuery&size=15$locationQuery")
-        val connection = (url.openConnection() as HttpURLConnection).apply {
-            requestMethod = "GET"
-            connectTimeout = 5000
-            readTimeout = 5000
-            setRequestProperty("Authorization", "KakaoAK ${BuildConfig.KAKAO_REST_API_KEY}")
-        }
-        try {
-            val stream = if (connection.responseCode in 200..299) {
-                connection.inputStream
-            } else {
-                connection.errorStream
-            }
-            val body = stream.bufferedReader().use { it.readText() }
-            if (connection.responseCode !in 200..299) error("Kakao Local API error: ${connection.responseCode}")
-            val documents = JSONObject(body).getJSONArray("documents")
-            buildList {
-                for (index in 0 until documents.length()) {
-                    val item = documents.getJSONObject(index)
-                    val name = item.getString("place_name")
-                    val roadAddress = item.optString("road_address_name").takeIf { it.isNotBlank() }
-                    val address = roadAddress ?: item.optString("address_name").takeIf { it.isNotBlank() }
-                    val longitude = item.optString("x").toDoubleOrNull()
-                    val latitude = item.optString("y").toDoubleOrNull()
-                    val distanceMeters = item.optString("distance").toIntOrNull()
-                    if (latitude != null && longitude != null) {
-                        add(
-                            KakaoPlace(
-                                name = name,
-                                address = address,
-                                latitude = latitude,
-                                longitude = longitude,
-                                distanceMeters = distanceMeters
-                            )
-                        )
-                    }
-                }
-            }
-        } finally {
-            connection.disconnect()
         }
     }
 
@@ -1186,31 +1102,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         val latitude: Double?,
         val longitude: Double?
     )
-
-    private data class KakaoPlace(
-        val name: String,
-        val address: String?,
-        val latitude: Double,
-        val longitude: Double,
-        val distanceMeters: Int?
-    ) {
-        val displayText: String
-            get() = if (address == null) name else "$name\n$address"
-
-        val metaText: String
-            get() {
-                val parts = listOfNotNull(address, distanceMeters?.let { formatDistance(it) })
-                return parts.ifEmpty { listOf("No address") }.joinToString(" · ")
-            }
-
-        private fun formatDistance(meters: Int): String {
-            return if (meters >= 1000) {
-                "%.1f km".format(meters / 1000f)
-            } else {
-                "$meters m"
-            }
-        }
-    }
 
     private data class PendingLocationSearch(
         val query: String,

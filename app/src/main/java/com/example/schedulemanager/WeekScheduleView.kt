@@ -65,7 +65,7 @@ class WeekScheduleView @JvmOverloads constructor(
         }
 
     // MainActivity로부터 공휴일 데이터를 전달받을 변수
-    var holidays: List<HolidayItem> = emptyList()
+    var holidays: List<Holiday> = emptyList()
         set(value) {
             field = value
             invalidate() // 데이터 세팅 시 화면 즉시 갱신
@@ -323,8 +323,7 @@ class WeekScheduleView @JvmOverloads constructor(
             }
 
             // 해당 날짜가 공휴일인지 매칭하여 이름을 뽑아옵니다.
-            val targetDateInt = date.year * 10000 + date.monthValue * 100 + date.dayOfMonth
-            val holidayName = holidays.firstOrNull { it.locdate == targetDateInt }?.dateName
+            val holidayName = holidays.firstOrNull { it.date == date }?.name
 
             // 헤더 텍스트 조합 분기 (공휴일 이름이 있으면 3줄 레이아웃으로 변경)
             val label = if (focusAmount > 0.5f) {

@@ -41,7 +41,7 @@ class MonthCalendarFragment : Fragment() {
             field = value
             if (_binding != null) render()
         }
-    var holidays: List<HolidayItem> = emptyList()
+    var holidays: List<Holiday> = emptyList()
         set(value) {
             field = value
             if (_binding != null) render()

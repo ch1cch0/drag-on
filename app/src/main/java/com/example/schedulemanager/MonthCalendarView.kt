@@ -29,7 +29,7 @@ class MonthCalendarView @JvmOverloads constructor(
         }
 
     // ◀ [추가] MainActivity로부터 공휴일 데이터를 전달받을 변수
-    var holidays: List<HolidayItem> = emptyList()
+    var holidays: List<Holiday> = emptyList()
         set(value) {
             field = value
             invalidate() // 데이터가 들어오면 달력을 다시 그리도록 갱신
@@ -192,8 +192,7 @@ class MonthCalendarView @JvmOverloads constructor(
 
     // ◀ [추가] 날짜 매칭용 헬퍼 함수
     private fun checkIsHoliday(date: LocalDate): Boolean {
-        val targetDateInt = date.year * 10000 + date.monthValue * 100 + date.dayOfMonth
-        return holidays.any { it.locdate == targetDateInt }
+        return holidays.any { it.date == date }
     }
 
     private fun dateAt(x: Float, y: Float): LocalDate? {
