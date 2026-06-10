@@ -49,6 +49,8 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.button.MaterialButton
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
+import com.google.android.gms.location.Priority
+import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import java.time.LocalDate
@@ -737,7 +739,17 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         }
         try {
             locationClient.lastLocation
-                .addOnSuccessListener { continuation.resume(it) }
+                .addOnSuccessListener { cachedLocation ->
+                    if (cachedLocation != null) {
+                        continuation.resume(cachedLocation)
+                    } else {
+                        val tokenSource = CancellationTokenSource()
+                        locationClient
+                            .getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, tokenSource.token)
+                            .addOnSuccessListener { continuation.resume(it) }
+                            .addOnFailureListener { continuation.resume(null) }
+                    }
+                }
                 .addOnFailureListener { continuation.resume(null) }
         } catch (_: SecurityException) {
             continuation.resume(null)
