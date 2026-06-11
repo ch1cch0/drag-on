@@ -2,19 +2,14 @@ package com.example.schedulemanager
 
 import android.app.AlertDialog
 import android.content.Context
-import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.view.View
 import android.view.ViewGroup
 import android.widget.AdapterView
-import android.widget.ArrayAdapter
 import android.widget.DatePicker
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.NumberPicker
-import android.widget.ScrollView
 import android.widget.Spinner
-import android.widget.TextView
 import com.example.schedulemanager.data.CategoryEntity
 import com.example.schedulemanager.data.RepeatType
 import com.example.schedulemanager.data.ScheduleEntity
@@ -32,9 +27,10 @@ class ScheduleEditorDialog(
     private val onSave: (ScheduleEntity) -> Unit
 ) {
     private val deadlineFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
+    private val formViews = DialogFormViews(context)
 
     fun show() {
-        val form = cardForm()
+        val form = formViews.cardForm()
         val titleInput = EditText(context).apply {
             hint = "Title"
             setText(schedule?.title.orEmpty())
@@ -82,9 +78,9 @@ class ScheduleEditorDialog(
             isClickable = true
             background = context.getDrawable(R.drawable.bg_date_input)
             setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.ic_calendar_24, 0)
-            compoundDrawablePadding = dp(10)
-            setPadding(dp(12), 0, dp(12), 0)
-            minHeight = dp(48)
+            compoundDrawablePadding = formViews.dp(10)
+            setPadding(formViews.dp(12), 0, formViews.dp(12), 0)
+            minHeight = formViews.dp(48)
         }
         deadlineInput.setOnClickListener {
             showDeadlinePicker(selectedDeadline) { date ->
@@ -93,11 +89,11 @@ class ScheduleEditorDialog(
             }
         }
 
-        categorySpinner.adapter = simpleAdapter(listOf("Unset") + categories.map { it.name })
+        categorySpinner.adapter = formViews.simpleAdapter(listOf("Unset") + categories.map { it.name })
         categorySpinner.setSelection(categories.indexOfFirst { it.id == schedule?.categoryId }.takeIf { it >= 0 }?.plus(1) ?: 0)
-        colorSpinner.adapter = simpleAdapter(listOf("Unset") + colorOptions.map { it.first })
+        colorSpinner.adapter = formViews.simpleAdapter(listOf("Unset") + colorOptions.map { it.first })
         colorSpinner.setSelection(colorOptions.indexOfFirst { it.second == schedule?.color }.takeIf { it >= 0 }?.plus(1) ?: 0)
-        repeatModeSpinner.adapter = simpleAdapter(listOf("Unset", "One-time", "Weekly", "Daily"))
+        repeatModeSpinner.adapter = formViews.simpleAdapter(listOf("Unset", "One-time", "Weekly", "Daily"))
         repeatModeSpinner.setSelection(
             when (schedule?.repeatType) {
                 null -> 0
@@ -107,9 +103,9 @@ class ScheduleEditorDialog(
             }
         )
 
-        form.addView(label("Title"))
+        form.addView(formViews.label("Title"))
         form.addView(titleInput)
-        form.addView(label("Location"))
+        form.addView(formViews.label("Location"))
         form.addView(
             LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -118,8 +114,8 @@ class ScheduleEditorDialog(
                 addView(
                     MaterialButton(context).apply {
                         text = "Search"
-                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, dp(48)).apply {
-                            marginStart = dp(8)
+                        layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, formViews.dp(48)).apply {
+                            marginStart = formViews.dp(8)
                         }
                         setOnClickListener {
                             onLocationSearch(locationInput.text.toString().trim()) { place ->
@@ -134,13 +130,13 @@ class ScheduleEditorDialog(
                 )
             }
         )
-        form.addView(label("Category"))
+        form.addView(formViews.label("Category"))
         form.addView(categorySpinner)
-        form.addView(label("Color"))
+        form.addView(formViews.label("Color"))
         form.addView(colorSpinner)
-        form.addView(label("Repeat / One-time"))
+        form.addView(formViews.label("Repeat / One-time"))
         form.addView(repeatModeSpinner)
-        form.addView(label("Duration"))
+        form.addView(formViews.label("Duration"))
         form.addView(
             LinearLayout(context).apply {
                 orientation = LinearLayout.HORIZONTAL
@@ -148,7 +144,7 @@ class ScheduleEditorDialog(
                 addView(minutePicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
             }
         )
-        form.addView(label("Deadline"))
+        form.addView(formViews.label("Deadline"))
         form.addView(deadlineInput)
 
         categorySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
@@ -185,7 +181,7 @@ class ScheduleEditorDialog(
 
         val dialog = AlertDialog.Builder(context)
             .setTitle(if (schedule == null) "Add schedule" else "Edit schedule")
-            .setView(scrollWrap(form))
+            .setView(formViews.scrollWrap(form))
             .setNegativeButton("Cancel", null)
             .setPositiveButton("Save", null)
             .create()
@@ -245,7 +241,7 @@ class ScheduleEditorDialog(
             color = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
             isRepeat = repeatType?.let { it != RepeatType.NONE },
             repeatType = repeatType,
-            durationMinutes = ((hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value)).takeIf { it > 0 },
+            durationMinutes = ((hourPicker.value * 60) + formViews.minuteIndexToMinutes(minutePicker.value)).takeIf { it > 0 },
             deadline = deadline?.toEpochDay(),
             locationName = location.name,
             locationAddress = if (locationChanged) null else location.address,
@@ -273,48 +269,6 @@ class ScheduleEditorDialog(
             }
             .show()
     }
-
-    private fun simpleAdapter(values: List<String>): ArrayAdapter<String> {
-        return ArrayAdapter(context, android.R.layout.simple_spinner_item, values).also {
-            it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
-    }
-
-    private fun cardForm(): LinearLayout = LinearLayout(context).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(12), dp(20), dp(12))
-        background = cellBackground(Color.WHITE, Color.TRANSPARENT, 14)
-    }
-
-    private fun label(text: String): TextView = TextView(context).apply {
-        this.text = text
-        setPadding(0, dp(12), 0, dp(2))
-        setTextColor(Color.rgb(102, 112, 133))
-        textSize = 12f
-    }
-
-    private fun scrollWrap(content: View): ScrollView = ScrollView(context).apply {
-        addView(content)
-    }
-
-    private fun cellBackground(fill: Int, stroke: Int, radiusDp: Int): GradientDrawable {
-        return GradientDrawable().apply {
-            color = android.content.res.ColorStateList.valueOf(fill)
-            cornerRadius = dp(radiusDp).toFloat()
-            if (stroke != Color.TRANSPARENT) setStroke(dp(1), stroke)
-        }
-    }
-
-    private fun minuteIndexToMinutes(index: Int): Int {
-        return when (index) {
-            1 -> 15
-            2 -> 30
-            3 -> 45
-            else -> 0
-        }
-    }
-
-    private fun dp(value: Int): Int = (value * context.resources.displayMetrics.density).toInt()
 
     private data class LocationSelection(
         val name: String?,
