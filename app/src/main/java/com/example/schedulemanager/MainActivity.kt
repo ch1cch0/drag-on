@@ -48,7 +48,6 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.time.temporal.TemporalAdjusters
 import kotlin.math.abs
 import kotlin.coroutines.resume
 
@@ -62,6 +61,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var locationClient: FusedLocationProviderClient
     private lateinit var locationPermissionLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var monthCalendarFragment: MonthCalendarFragment
+    private lateinit var weeklyTimetable: WeeklyTimetableController
     private var pendingLocationSearch: PendingLocationSearch? = null
 
     private lateinit var holidayRepository: HolidayRepository
@@ -69,9 +69,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
 
     private var schedules: List<ScheduleEntity> = emptyList()
     private var categories: List<CategoryEntity> = emptyList()
-    private var selectedDate: LocalDate = LocalDate.now()
-    private var selectedWeekStart: LocalDate = weekStart(LocalDate.now())
-    private var focusedDay = LocalDate.now().dayOfWeek.value
     private var displayedMonth: LocalDate = LocalDate.now().withDayOfMonth(1)
     private var calendarMode = false
     private var cumulativeScale = 1f
@@ -142,17 +139,14 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
 
         binding.addButton.setOnClickListener { showScheduleEditor(null) }
         binding.categoryButton.setOnClickListener { showCategoryManager() }
-        binding.weekHeader.headerOnly = true
-        binding.weekHeader.onDayFocus = { focusDate(it) }
-        binding.weekHeader.onPinch = { handlePinchScale(it) }
-        binding.weekHeader.onFocusPositionChanged = { syncFocusPosition(it) }
-        binding.weekSchedule.onScheduleClick = { showScheduleDetail(it) }
-        binding.weekSchedule.onDayFocus = { focusDate(it) }
-        binding.weekSchedule.onPinch = { handlePinchScale(it) }
-        binding.weekSchedule.onFocusPositionChanged = { syncFocusPosition(it) }
-        binding.weekSchedule.onScheduleDrop = { id, date, day, minutes ->
-            placeSchedule(id, date, day, minutes)
-        }
+        weeklyTimetable = WeeklyTimetableController(
+            binding = binding,
+            titleFormatter = shortDateFormatter,
+            onScheduleClick = { showScheduleDetail(it) },
+            onScheduleDrop = { id, date, day, minutes -> placeSchedule(id, date, day, minutes) },
+            onPinch = { handlePinchScale(it) },
+            onFocusChanged = { focusDate(it) }
+        )
         monthCalendarFragment = MonthCalendarFragment()
         supportFragmentManager.commit {
             replace(binding.monthFragmentContainer.id, monthCalendarFragment)
@@ -167,6 +161,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             }.collect { (scheduleList, categoryList) ->
                 schedules = scheduleList
                 categories = categoryList
+                weeklyTimetable.schedules = scheduleList
                 renderInbox()
                 renderMainSurface()
             }
@@ -185,9 +180,11 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             val result = runCatching { holidayRepository.holidaysForMonth(date) }
             if (result.isSuccess) {
                 currentHolidays = result.getOrDefault(emptyList())
+                weeklyTimetable.holidays = currentHolidays
                 renderMainSurface()
             } else {
                 currentHolidays = emptyList()
+                weeklyTimetable.holidays = currentHolidays
                 renderMainSurface()
                 Toast.makeText(this@MainActivity, "Holiday data could not be loaded.", Toast.LENGTH_SHORT).show()
             }
@@ -207,8 +204,12 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                     velocityY: Float
                 ): Boolean {
                     if (calendarMode || abs(velocityX) < abs(velocityY)) return false
-                    if (velocityX < -350) focusDate(dateForDay((focusedDay + 1).coerceAtMost(7)))
-                    if (velocityX > 350) focusDate(dateForDay((focusedDay - 1).coerceAtLeast(1)))
+                    if (velocityX < -350) {
+                        focusDate(weeklyTimetable.dateForDay((weeklyTimetable.focusedDay + 1).coerceAtMost(7)))
+                    }
+                    if (velocityX > 350) {
+                        focusDate(weeklyTimetable.dateForDay((weeklyTimetable.focusedDay - 1).coerceAtLeast(1)))
+                    }
                     return true
                 }
             }
@@ -248,15 +249,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         }
     }
 
-    private fun syncFocusPosition(position: Float?) {
-        if (position != null) {
-            binding.weekHeader.prepareFocusSettle(position)
-            binding.weekSchedule.prepareFocusSettle(position)
-        }
-        binding.weekHeader.interactiveFocusPosition = position
-        binding.weekSchedule.interactiveFocusPosition = position
-    }
-
     private fun setInboxHidden(hidden: Boolean) {
         binding.inboxSheet.alpha = if (hidden) 0f else 1f
         binding.inboxSheet.isEnabled = !hidden
@@ -287,7 +279,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                 binding.monthFragmentContainer.visibility = View.GONE
                 setInboxHidden(false)
                 binding.weekScroll.visibility = View.VISIBLE
-                renderTimetable()
+                weeklyTimetable.render()
             }
             binding.scheduleSurface.animate().alpha(1f).setDuration(130).start()
         }.start()
@@ -299,24 +291,9 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         inboxAdapter.submit(inboxItems)
     }
 
-    private fun renderTimetable() {
-        val weekEnd = selectedWeekStart.plusDays(6)
-        binding.titleText.text = "${selectedWeekStart.format(shortDateFormatter)} - ${weekEnd.format(shortDateFormatter)}"
-        binding.weekHeader.selectedWeekStart = selectedWeekStart
-        binding.weekHeader.focusedDay = focusedDay
-
-        // ◀ [공휴일 엔진 복구] 주간 상단 컴포넌트에 공휴일 데이터 바인딩 주입 완료
-        binding.weekHeader.holidays = currentHolidays
-
-        binding.weekSchedule.schedules = schedules
-        binding.weekSchedule.selectedWeekStart = selectedWeekStart
-        binding.weekSchedule.focusedDay = focusedDay
-        binding.weekSchedule.holidays = currentHolidays
-    }
-
     private fun renderMonthlyCalendar() {
         monthCalendarFragment.displayedMonth = displayedMonth
-        monthCalendarFragment.selectedDate = selectedDate
+        monthCalendarFragment.selectedDate = weeklyTimetable.selectedDate
         monthCalendarFragment.holidays = currentHolidays
     }
 
@@ -356,13 +333,11 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     }
 
     private fun focusDate(date: LocalDate) {
-        if (date == selectedDate && !calendarMode) return
-        selectedDate = date
-        selectedWeekStart = weekStart(date)
-        focusedDay = date.dayOfWeek.value
+        if (date == weeklyTimetable.selectedDate && !calendarMode) return
+        weeklyTimetable.focusDate(date)
         calendarMode = false
-        if (binding.weekScroll.visibility == View.VISIBLE && binding.monthFragmentContainer.visibility != View.VISIBLE) {
-            renderTimetable()
+        if (weeklyTimetable.isWeekVisible()) {
+            weeklyTimetable.render()
         } else {
             renderMainSurface()
         }
@@ -386,10 +361,8 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     }
 
     override fun onMonthTodaySelected() {
-        selectedDate = LocalDate.now()
-        selectedWeekStart = weekStart(selectedDate)
-        focusedDay = selectedDate.dayOfWeek.value
-        displayedMonth = selectedDate.withDayOfMonth(1)
+        weeklyTimetable.focusToday()
+        displayedMonth = weeklyTimetable.selectedDate.withDayOfMonth(1)
         fetchHolidaysForMonth(displayedMonth)
         renderMainSurface()
     }
@@ -629,8 +602,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         return categories.firstOrNull { it.id == categoryId }?.name ?: "No category"
     }
 
-    private fun dateForDay(day: Int): LocalDate = selectedWeekStart.plusDays((day - 1).toLong())
-
     private fun cellBackground(fill: Int, stroke: Int, radiusDp: Int): GradientDrawable {
         return GradientDrawable().apply {
             color = android.content.res.ColorStateList.valueOf(fill)
@@ -738,9 +709,4 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         }
     }
 
-    companion object {
-        private fun weekStart(date: LocalDate): LocalDate {
-            return date.with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
-        }
-    }
 }
