@@ -7,7 +7,6 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.DashPathEffect
 import android.graphics.Paint
-import android.graphics.Point
 import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.DragEvent
@@ -18,7 +17,6 @@ import android.view.ViewConfiguration
 import android.view.animation.DecelerateInterpolator
 import androidx.core.graphics.ColorUtils
 import androidx.core.view.GestureDetectorCompat
-import com.example.schedulemanager.data.RepeatType
 import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.data.ScheduleStatus
 import java.time.LocalDate
@@ -277,10 +275,6 @@ class WeekScheduleView @JvmOverloads constructor(
         return true
     }
 
-    private fun handleSwipeDistance(dx: Float, dy: Float): Boolean {
-        return handleSwipeRelease(dx, dy)
-    }
-
     private fun handleSwipeRelease(dx: Float, dy: Float): Boolean {
         val position = interactiveFocusPosition.takeIf { isFocusDragging }
         isFocusDragging = false
@@ -381,7 +375,7 @@ class WeekScheduleView @JvmOverloads constructor(
         val schedule = schedules.firstOrNull { it.id == preview.scheduleId }
         val duration = schedule?.durationMinutes ?: 60
         val baseColor = schedule?.color ?: Color.rgb(34, 108, 224)
-        val previewDays = if (schedule?.repeatType == RepeatType.DAILY) 1..7 else preview.day..preview.day
+        val previewDays = ScheduleOccurrence.previewDays(schedule, preview.day)
         for (day in previewDays) {
             val rect = columnRect(
                 day,
@@ -395,7 +389,7 @@ class WeekScheduleView @JvmOverloads constructor(
             canvas.drawRoundRect(rect, corner, corner, fillPaint)
             canvas.drawRoundRect(rect, corner, corner, previewStrokePaint)
             if (day == focusedDay) {
-                val label = "${schedule?.title ?: "Schedule"}  ${minutesToText(preview.minutes)}-${minutesToText(preview.minutes + duration)}"
+                val label = "${schedule?.title ?: "Schedule"}  ${ScheduleOccurrence.minutesToText(preview.minutes)}-${ScheduleOccurrence.minutesToText(preview.minutes + duration)}"
                 canvas.drawText(label, rect.left + 7f * density, rect.top + 17f * density, smallTextPaint)
             }
         }
@@ -408,7 +402,7 @@ class WeekScheduleView @JvmOverloads constructor(
             val duration = schedule.durationMinutes ?: 60
             for (day in 1..7) {
                 val date = dateForDay(day)
-                if (!occursOn(schedule, date)) continue
+                if (!ScheduleOccurrence.occursOn(schedule, date)) continue
                 val rect = columnRect(day, yForMinutes(start), yForMinutes(start + duration)).apply {
                     inset(3f * density, 2f * density)
                 }
@@ -428,7 +422,7 @@ class WeekScheduleView @JvmOverloads constructor(
                             whiteTextPaint
                         )
                         else -> {
-                            val time = "${minutesToText(start)}-${minutesToText(start + duration)}"
+                            val time = "${ScheduleOccurrence.minutesToText(start)}-${ScheduleOccurrence.minutesToText(start + duration)}"
                             canvas.drawText(schedule.title, rect.left + 7f * density, rect.top + 15f * density, whiteTextPaint)
                             canvas.drawText(time, rect.left + 7f * density, rect.top + 30f * density, whiteTextPaint)
                         }
@@ -443,26 +437,17 @@ class WeekScheduleView @JvmOverloads constructor(
             if (schedule.status == ScheduleStatus.INBOX) return@firstOrNull false
             val day = dayAt(x) ?: return@firstOrNull false
             val date = dateForDay(day)
-            if (!occursOn(schedule, date)) return@firstOrNull false
+            if (!ScheduleOccurrence.occursOn(schedule, date)) return@firstOrNull false
             val start = schedule.startTimeMinutes ?: return@firstOrNull false
             val rect = columnRect(day, yForMinutes(start), yForMinutes(start + (schedule.durationMinutes ?: 60)))
             rect.contains(x, y)
         }
     }
 
-    private fun occursOn(schedule: ScheduleEntity, date: LocalDate): Boolean {
-        val anchor = schedule.scheduledDate?.let { LocalDate.ofEpochDay(it) } ?: return false
-        return when (schedule.repeatType) {
-            RepeatType.DAILY -> true
-            RepeatType.WEEKLY -> date.dayOfWeek == anchor.dayOfWeek
-            else -> date == anchor
-        }
-    }
-
     private fun startScheduleDrag(schedule: ScheduleEntity) {
         onScheduleDragStarted?.invoke(schedule)
         val data = ClipData.newPlainText("scheduleId", schedule.id.toString())
-        startDragAndDrop(data, ScheduleDragShadowBuilder(schedule), schedule.id, 0)
+        startDragAndDrop(data, ScheduleDragShadowBuilder(this, schedule, density, hourHeight), schedule.id, 0)
     }
 
     private fun handleDrag(event: DragEvent): Boolean {
@@ -618,38 +603,7 @@ class WeekScheduleView @JvmOverloads constructor(
         }
     }
 
-    private fun minutesToText(minutes: Int): String = "%02d:%02d".format(minutes / 60, minutes % 60)
-
     private data class DropPreview(val day: Int, val minutes: Int, val scheduleId: Long?)
-
-    private inner class ScheduleDragShadowBuilder(
-        private val schedule: ScheduleEntity
-    ) : DragShadowBuilder(this) {
-        private val shadowWidth = (width / 12f * 4f * 0.86f).roundToInt().coerceAtLeast((92f * density).roundToInt())
-        private val shadowHeight = (((schedule.durationMinutes ?: 60) / 60f) * hourHeight)
-            .roundToInt()
-            .coerceAtLeast((42f * density).roundToInt())
-            .coerceAtMost((150f * density).roundToInt())
-
-        override fun onProvideShadowMetrics(outShadowSize: Point, outShadowTouchPoint: Point) {
-            outShadowSize.set(shadowWidth, shadowHeight)
-            outShadowTouchPoint.set(shadowWidth / 2, (18f * density).roundToInt())
-        }
-
-        override fun onDrawShadow(canvas: Canvas) {
-            val rect = RectF(0f, 0f, shadowWidth.toFloat(), shadowHeight.toFloat())
-            fillPaint.color = ColorUtils.setAlphaComponent(schedule.color ?: Color.rgb(34, 108, 224), 185)
-            canvas.drawRoundRect(rect, corner, corner, fillPaint)
-            val start = schedule.startTimeMinutes
-            val subtitle = if (start != null) {
-                "${minutesToText(start)}-${minutesToText(start + (schedule.durationMinutes ?: 60))}"
-            } else {
-                "${schedule.durationMinutes ?: 60} min"
-            }
-            canvas.drawText(schedule.title, 8f * density, 17f * density, whiteTextPaint)
-            canvas.drawText(subtitle, 8f * density, 32f * density, whiteTextPaint)
-        }
-    }
 
     companion object {
         private fun weekStart(date: LocalDate): LocalDate {
