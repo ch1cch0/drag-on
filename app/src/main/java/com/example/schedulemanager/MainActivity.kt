@@ -6,24 +6,19 @@ import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
-import android.widget.LinearLayout
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GestureDetectorCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.LinearLayoutManager
 import com.example.schedulemanager.data.AppDatabase
 import com.example.schedulemanager.data.CategoryEntity
 import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.data.ScheduleRepository
 import com.example.schedulemanager.data.ScheduleStatus
 import com.example.schedulemanager.databinding.ActivityMainBinding
-import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.flow.combine
@@ -36,7 +31,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var binding: ActivityMainBinding
     private lateinit var repository: ScheduleRepository
     private lateinit var inboxAdapter: InboxScheduleAdapter
-    private lateinit var bottomSheetBehavior: BottomSheetBehavior<LinearLayout>
+    private lateinit var inboxController: InboxBottomSheetController
     private lateinit var gestureDetector: GestureDetectorCompat
     private lateinit var scaleDetector: android.view.ScaleGestureDetector
     private lateinit var locationClient: FusedLocationProviderClient
@@ -79,40 +74,16 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         }
         initExternalRepositories()
 
-        bottomSheetBehavior = BottomSheetBehavior.from(binding.inboxSheet)
-        val contentBasePaddingBottom = binding.contentContainer.paddingBottom
-        val inboxBasePaddingBottom = binding.inboxSheet.paddingBottom
-        ViewCompat.setOnApplyWindowInsetsListener(binding.main) { view, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(systemBars.left, systemBars.top, systemBars.right, 0)
-            binding.contentContainer.setPadding(
-                binding.contentContainer.paddingLeft,
-                binding.contentContainer.paddingTop,
-                binding.contentContainer.paddingRight,
-                contentBasePaddingBottom + systemBars.bottom
-            )
-            binding.inboxSheet.setPadding(
-                binding.inboxSheet.paddingLeft,
-                binding.inboxSheet.paddingTop,
-                binding.inboxSheet.paddingRight,
-                inboxBasePaddingBottom + systemBars.bottom
-            )
-            binding.inboxSheet.post {
-                bottomSheetBehavior.peekHeight = dp(92) + systemBars.bottom
-                bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
-            }
-            insets
-        }
         inboxAdapter = InboxScheduleAdapter(
             onClick = { showScheduleEditor(it) },
             onLongClick = { schedule, itemView -> startScheduleDrag(schedule, itemView) },
             categoryName = { id -> categoryName(id) }
         )
-        binding.inboxRecycler.layoutManager = LinearLayoutManager(this)
-        binding.inboxRecycler.adapter = inboxAdapter
-
-        binding.addButton.setOnClickListener { showScheduleEditor(null) }
-        binding.categoryButton.setOnClickListener { showCategoryManager() }
+        inboxController = InboxBottomSheetController(binding, inboxAdapter)
+        inboxController.setup(
+            onAddSchedule = { showScheduleEditor(null) },
+            onManageCategories = { showCategoryManager() }
+        )
         weeklyTimetable = WeeklyTimetableController(
             binding = binding,
             titleFormatter = shortDateFormatter,
@@ -136,7 +107,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                 schedules = scheduleList
                 categories = categoryList
                 weeklyTimetable.schedules = scheduleList
-                renderInbox()
+                inboxController.render(scheduleList)
                 renderMainSurface()
             }
         }
@@ -230,46 +201,23 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         }
     }
 
-    private fun setInboxHidden(hidden: Boolean) {
-        binding.inboxSheet.alpha = if (hidden) 0f else 1f
-        binding.inboxSheet.isEnabled = !hidden
-        binding.inboxSheet.isClickable = !hidden
-        binding.inboxSheet.importantForAccessibility = if (hidden) {
-            View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS
-        } else {
-            View.IMPORTANT_FOR_ACCESSIBILITY_AUTO
-        }
-        bottomSheetBehavior.isDraggable = !hidden
-        if (!hidden) {
-            binding.inboxSheet.post {
-                bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
-            }
-        }
-    }
-
     private fun renderMainSurface() {
         binding.scheduleSurface.animate().alpha(0.78f).setDuration(80).withEndAction {
             if (calendarMode) {
                 binding.titleText.visibility = View.GONE
                 binding.weekScroll.visibility = View.GONE
                 binding.monthFragmentContainer.visibility = View.VISIBLE
-                setInboxHidden(true)
+                inboxController.setHidden(true)
                 renderMonthlyCalendar()
             } else {
                 binding.titleText.visibility = View.VISIBLE
                 binding.monthFragmentContainer.visibility = View.GONE
-                setInboxHidden(false)
+                inboxController.setHidden(false)
                 binding.weekScroll.visibility = View.VISIBLE
                 weeklyTimetable.render()
             }
             binding.scheduleSurface.animate().alpha(1f).setDuration(130).start()
         }.start()
-    }
-
-    private fun renderInbox() {
-        val inboxItems = schedules.filter { it.status == ScheduleStatus.INBOX }
-        binding.inboxTitle.text = "Inbox (${inboxItems.size})"
-        inboxAdapter.submit(inboxItems)
     }
 
     private fun renderMonthlyCalendar() {
@@ -326,7 +274,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     }
 
     private fun startScheduleDrag(schedule: ScheduleEntity, itemView: View): Boolean {
-        bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+        inboxController.collapse()
         val data = ClipData.newPlainText("scheduleId", schedule.id.toString())
         val shadow = View.DragShadowBuilder(itemView)
         itemView.startDragAndDrop(data, shadow, schedule.id, 0)
@@ -362,8 +310,8 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             onLocationSearch = ::showLocationSearch,
             onSave = { entity ->
                 lifecycleScope.launch { repository.saveSchedule(entity) }
-                bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
-                if (entity.status == ScheduleStatus.INBOX) animateIntoInbox()
+                inboxController.collapse()
+                if (entity.status == ScheduleStatus.INBOX) inboxController.animateIntoInbox()
             }
         ).show()
     }
@@ -380,7 +328,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             onDoneChanged = { done -> lifecycleScope.launch { repository.markDone(schedule, done) } },
             onMoveToInbox = {
                 lifecycleScope.launch { repository.moveToInbox(schedule) }
-                animateIntoInbox()
+                inboxController.animateIntoInbox()
             },
             onDelete = { lifecycleScope.launch { repository.deleteSchedule(schedule) } },
             onEdit = { showScheduleEditor(schedule) }
@@ -405,17 +353,8 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         ).show()
     }
 
-    private fun animateIntoInbox() {
-        binding.inboxRecycler.scaleX = 0.96f
-        binding.inboxRecycler.scaleY = 0.96f
-        binding.inboxRecycler.alpha = 0.55f
-        binding.inboxRecycler.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start()
-    }
-
     private fun categoryName(categoryId: Long?): String {
         return categories.firstOrNull { it.id == categoryId }?.name ?: "No category"
     }
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
 
 }
