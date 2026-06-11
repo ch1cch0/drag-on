@@ -38,6 +38,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var locationPermissionLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var monthCalendarFragment: MonthCalendarFragment
     private lateinit var weeklyTimetable: WeeklyTimetableController
+    private lateinit var mainSurfaceController: MainSurfaceController
     private lateinit var locationSearchController: LocationSearchController
 
     private lateinit var holidayRepository: HolidayRepository
@@ -46,7 +47,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private var schedules: List<ScheduleEntity> = emptyList()
     private var categories: List<CategoryEntity> = emptyList()
     private var displayedMonth: LocalDate = LocalDate.now().withDayOfMonth(1)
-    private var calendarMode = false
     private var cumulativeScale = 1f
 
     private var currentHolidays: List<Holiday> = emptyList()
@@ -89,8 +89,14 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             titleFormatter = shortDateFormatter,
             onScheduleClick = { showScheduleDetail(it) },
             onScheduleDrop = { id, date, day, minutes -> placeSchedule(id, date, day, minutes) },
-            onPinch = { handlePinchScale(it) },
+            onPinch = { mainSurfaceController.handlePinchScale(it) },
             onFocusChanged = { focusDate(it) }
+        )
+        mainSurfaceController = MainSurfaceController(
+            binding = binding,
+            inboxController = inboxController,
+            weeklyTimetable = weeklyTimetable,
+            onRenderMonthlyCalendar = { renderMonthlyCalendar() }
         )
         monthCalendarFragment = MonthCalendarFragment()
         supportFragmentManager.commit {
@@ -108,7 +114,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                 categories = categoryList
                 weeklyTimetable.schedules = scheduleList
                 inboxController.render(scheduleList)
-                renderMainSurface()
+                mainSurfaceController.render()
             }
         }
 
@@ -133,11 +139,11 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             if (result.isSuccess) {
                 currentHolidays = result.getOrDefault(emptyList())
                 weeklyTimetable.holidays = currentHolidays
-                renderMainSurface()
+                mainSurfaceController.render()
             } else {
                 currentHolidays = emptyList()
                 weeklyTimetable.holidays = currentHolidays
-                renderMainSurface()
+                mainSurfaceController.render()
                 Toast.makeText(this@MainActivity, "Holiday data could not be loaded.", Toast.LENGTH_SHORT).show()
             }
         }
@@ -155,7 +161,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                     velocityX: Float,
                     velocityY: Float
                 ): Boolean {
-                    if (calendarMode || abs(velocityX) < abs(velocityY)) return false
+                    if (mainSurfaceController.calendarMode || abs(velocityX) < abs(velocityY)) return false
                     if (velocityX < -350) {
                         focusDate(weeklyTimetable.dateForDay((weeklyTimetable.focusedDay + 1).coerceAtMost(7)))
                     }
@@ -180,7 +186,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                 }
 
                 override fun onScaleEnd(detector: android.view.ScaleGestureDetector) {
-                    handlePinchScale(cumulativeScale)
+                    mainSurfaceController.handlePinchScale(cumulativeScale)
                 }
             }
         )
@@ -189,35 +195,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             gestureDetector.onTouchEvent(event)
             true
         }
-    }
-
-    private fun handlePinchScale(scaleFactor: Float) {
-        if (scaleFactor < 0.92f && !calendarMode) {
-            calendarMode = true
-            renderMainSurface()
-        } else if (scaleFactor > 1.08f && calendarMode) {
-            calendarMode = false
-            renderMainSurface()
-        }
-    }
-
-    private fun renderMainSurface() {
-        binding.scheduleSurface.animate().alpha(0.78f).setDuration(80).withEndAction {
-            if (calendarMode) {
-                binding.titleText.visibility = View.GONE
-                binding.weekScroll.visibility = View.GONE
-                binding.monthFragmentContainer.visibility = View.VISIBLE
-                inboxController.setHidden(true)
-                renderMonthlyCalendar()
-            } else {
-                binding.titleText.visibility = View.VISIBLE
-                binding.monthFragmentContainer.visibility = View.GONE
-                inboxController.setHidden(false)
-                binding.weekScroll.visibility = View.VISIBLE
-                weeklyTimetable.render()
-            }
-            binding.scheduleSurface.animate().alpha(1f).setDuration(130).start()
-        }.start()
     }
 
     private fun renderMonthlyCalendar() {
@@ -230,19 +207,14 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         MonthPickerDialog(this, currentMonth) { selectedMonth ->
             displayedMonth = selectedMonth
             fetchHolidaysForMonth(displayedMonth)
-            renderMainSurface()
+            mainSurfaceController.render()
         }.show()
     }
 
     private fun focusDate(date: LocalDate) {
-        if (date == weeklyTimetable.selectedDate && !calendarMode) return
+        if (date == weeklyTimetable.selectedDate && !mainSurfaceController.calendarMode) return
         weeklyTimetable.focusDate(date)
-        calendarMode = false
-        if (weeklyTimetable.isWeekVisible()) {
-            weeklyTimetable.render()
-        } else {
-            renderMainSurface()
-        }
+        mainSurfaceController.showWeek()
     }
 
     override fun onMonthDateSelected(date: LocalDate) {
@@ -255,10 +227,10 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         if (previousMonth.year != displayedMonth.year || previousMonth.monthValue != displayedMonth.monthValue) {
             fetchHolidaysForMonth(displayedMonth)
         }
-        if (calendarMode) {
+        if (mainSurfaceController.calendarMode) {
             renderMonthlyCalendar()
         } else {
-            renderMainSurface()
+            mainSurfaceController.render()
         }
     }
 
@@ -266,7 +238,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         weeklyTimetable.focusToday()
         displayedMonth = weeklyTimetable.selectedDate.withDayOfMonth(1)
         fetchHolidaysForMonth(displayedMonth)
-        renderMainSurface()
+        mainSurfaceController.render()
     }
 
     override fun onMonthTitleSelected(month: LocalDate) {
