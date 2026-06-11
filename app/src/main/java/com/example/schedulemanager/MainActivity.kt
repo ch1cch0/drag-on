@@ -6,7 +6,6 @@ import android.graphics.Color
 import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.GestureDetector
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
 import android.view.ViewGroup
@@ -22,14 +21,12 @@ import androidx.core.view.WindowInsetsCompat
 import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
 import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.example.schedulemanager.data.AppDatabase
 import com.example.schedulemanager.data.CategoryEntity
 import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.data.ScheduleRepository
 import com.example.schedulemanager.data.ScheduleStatus
 import com.example.schedulemanager.databinding.ActivityMainBinding
-import com.example.schedulemanager.databinding.ItemScheduleBinding
 import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.button.MaterialButton
 import com.google.android.gms.location.FusedLocationProviderClient
@@ -43,7 +40,7 @@ import kotlin.math.abs
 class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var binding: ActivityMainBinding
     private lateinit var repository: ScheduleRepository
-    private lateinit var inboxAdapter: ScheduleAdapter
+    private lateinit var inboxAdapter: InboxScheduleAdapter
     private lateinit var bottomSheetBehavior: BottomSheetBehavior<LinearLayout>
     private lateinit var gestureDetector: GestureDetectorCompat
     private lateinit var scaleDetector: android.view.ScaleGestureDetector
@@ -111,7 +108,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             }
             insets
         }
-        inboxAdapter = ScheduleAdapter(
+        inboxAdapter = InboxScheduleAdapter(
             onClick = { showScheduleEditor(it) },
             onLongClick = { schedule, itemView -> startScheduleDrag(schedule, itemView) },
             categoryName = { id -> categoryName(id) }
@@ -466,48 +463,5 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-
-    private class ScheduleAdapter(
-        private val onClick: (ScheduleEntity) -> Unit,
-        private val onLongClick: (ScheduleEntity, View) -> Boolean,
-        private val categoryName: (Long?) -> String
-    ) : RecyclerView.Adapter<ScheduleAdapter.ScheduleViewHolder>() {
-        private val items = mutableListOf<ScheduleEntity>()
-
-        fun submit(newItems: List<ScheduleEntity>) {
-            items.clear()
-            items.addAll(newItems)
-            notifyDataSetChanged()
-        }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ScheduleViewHolder {
-            val binding = ItemScheduleBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-            return ScheduleViewHolder(binding, onClick, onLongClick, categoryName)
-        }
-
-        override fun onBindViewHolder(holder: ScheduleViewHolder, position: Int) {
-            holder.bind(items[position])
-        }
-
-        override fun getItemCount(): Int = items.size
-
-        private inner class ScheduleViewHolder(
-            private val binding: ItemScheduleBinding,
-            private val onClick: (ScheduleEntity) -> Unit,
-            private val onLongClick: (ScheduleEntity, View) -> Boolean,
-            private val categoryName: (Long?) -> String
-        ) : RecyclerView.ViewHolder(binding.root) {
-            fun bind(schedule: ScheduleEntity) {
-                binding.titleText.text = schedule.title
-                binding.metaText.text = "${schedule.durationMinutes?.let { "$it min" } ?: "No duration"} · ${categoryName(schedule.categoryId)}"
-                binding.colorStrip.background = GradientDrawable().apply {
-                    color = android.content.res.ColorStateList.valueOf(schedule.color ?: Color.rgb(160, 166, 178))
-                    cornerRadius = binding.root.resources.displayMetrics.density * 3
-                }
-                binding.root.setOnClickListener { onClick(schedule) }
-                binding.root.setOnLongClickListener { onLongClick(schedule, binding.root) }
-            }
-        }
-    }
 
 }
