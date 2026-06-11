@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.category
 
 import android.app.AlertDialog
 import android.content.Context
@@ -9,6 +9,7 @@ import android.widget.NumberPicker
 import android.widget.Spinner
 import com.example.schedulemanager.data.CategoryEntity
 import com.example.schedulemanager.data.RepeatType
+import com.example.schedulemanager.ui.common.DialogFormViews
 
 class CategoryEditorDialog(
     private val context: Context,

@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.month
 
 import android.content.Context
 import android.graphics.Canvas
@@ -8,6 +8,7 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import com.example.schedulemanager.external.Holiday
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 import kotlin.math.floor

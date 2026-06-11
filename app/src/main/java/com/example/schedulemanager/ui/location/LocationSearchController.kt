@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.location
 
 import android.Manifest
 import android.content.pm.PackageManager
@@ -8,6 +8,9 @@ import androidx.activity.result.ActivityResultLauncher
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleCoroutineScope
+import com.example.schedulemanager.BuildConfig
+import com.example.schedulemanager.external.KakaoPlace
+import com.example.schedulemanager.external.LocationSearchRepository
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.Priority
 import com.google.android.gms.tasks.CancellationTokenSource

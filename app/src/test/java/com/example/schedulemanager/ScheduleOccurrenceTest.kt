@@ -3,6 +3,7 @@ package com.example.schedulemanager
 import com.example.schedulemanager.data.RepeatType
 import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.data.ScheduleStatus
+import com.example.schedulemanager.domain.ScheduleOccurrence
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test

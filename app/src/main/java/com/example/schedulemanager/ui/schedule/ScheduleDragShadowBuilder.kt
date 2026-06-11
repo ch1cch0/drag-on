@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.schedule
 
 import android.graphics.Canvas
 import android.graphics.Color
@@ -7,6 +7,7 @@ import android.graphics.Point
 import android.graphics.RectF
 import android.view.View
 import androidx.core.graphics.ColorUtils
+import com.example.schedulemanager.domain.ScheduleOccurrence
 import com.example.schedulemanager.data.ScheduleEntity
 import kotlin.math.roundToInt
 

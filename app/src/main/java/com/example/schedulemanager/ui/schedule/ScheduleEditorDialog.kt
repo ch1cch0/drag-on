@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.schedule
 
 import android.app.AlertDialog
 import android.content.Context
@@ -10,10 +10,13 @@ import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.NumberPicker
 import android.widget.Spinner
+import com.example.schedulemanager.R
 import com.example.schedulemanager.data.CategoryEntity
 import com.example.schedulemanager.data.RepeatType
 import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.data.ScheduleStatus
+import com.example.schedulemanager.external.KakaoPlace
+import com.example.schedulemanager.ui.common.DialogFormViews
 import com.google.android.material.button.MaterialButton
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter

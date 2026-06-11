@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.category
 
 import android.app.AlertDialog
 import android.content.Context

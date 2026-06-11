@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.external
 
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext

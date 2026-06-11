@@ -1,8 +1,9 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.week
 
 import android.view.View
 import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.databinding.ActivityMainBinding
+import com.example.schedulemanager.external.Holiday
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters

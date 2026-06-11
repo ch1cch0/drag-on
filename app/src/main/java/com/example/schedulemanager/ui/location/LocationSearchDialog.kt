@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.location
 
 import android.app.AlertDialog
 import android.content.Context
@@ -10,6 +10,7 @@ import android.widget.LinearLayout
 import android.widget.TextView
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
+import com.example.schedulemanager.external.KakaoPlace
 
 class LocationSearchDialog(
     private val context: Context,

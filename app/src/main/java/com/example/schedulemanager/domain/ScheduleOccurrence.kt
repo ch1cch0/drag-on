@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.domain
 
 import com.example.schedulemanager.data.RepeatType
 import com.example.schedulemanager.data.ScheduleEntity

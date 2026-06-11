@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.common
 
 import android.content.Context
 import android.graphics.Color

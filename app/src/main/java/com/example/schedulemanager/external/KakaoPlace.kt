@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.external
 
 data class KakaoPlace(
     val name: String,

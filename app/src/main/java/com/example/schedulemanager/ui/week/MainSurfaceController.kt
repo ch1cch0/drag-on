@@ -1,7 +1,8 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.week
 
 import android.view.View
 import com.example.schedulemanager.databinding.ActivityMainBinding
+import com.example.schedulemanager.ui.inbox.InboxBottomSheetController
 
 class MainSurfaceController(
     private val binding: ActivityMainBinding,

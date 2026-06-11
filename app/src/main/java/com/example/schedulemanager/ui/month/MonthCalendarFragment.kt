@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.month
 
 import android.os.Bundle
 import android.view.Gravity
@@ -10,6 +10,7 @@ import androidx.fragment.app.Fragment
 import androidx.recyclerview.widget.RecyclerView
 import androidx.viewpager2.widget.ViewPager2
 import com.example.schedulemanager.databinding.FragmentMonthCalendarBinding
+import com.example.schedulemanager.external.Holiday
 import java.time.LocalDate
 import java.time.temporal.ChronoUnit
 

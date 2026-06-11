@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.week
 
 import android.animation.ValueAnimator
 import android.content.ClipData
@@ -19,6 +19,9 @@ import androidx.core.graphics.ColorUtils
 import androidx.core.view.GestureDetectorCompat
 import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.data.ScheduleStatus
+import com.example.schedulemanager.domain.ScheduleOccurrence
+import com.example.schedulemanager.external.Holiday
+import com.example.schedulemanager.ui.schedule.ScheduleDragShadowBuilder
 import java.time.LocalDate
 import java.time.temporal.TemporalAdjusters
 import kotlin.math.abs

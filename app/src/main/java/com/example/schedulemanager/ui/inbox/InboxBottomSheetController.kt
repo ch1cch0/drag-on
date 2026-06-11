@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.inbox
 
 import android.view.View
 import androidx.core.view.ViewCompat
