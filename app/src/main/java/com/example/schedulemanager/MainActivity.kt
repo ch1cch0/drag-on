@@ -1,13 +1,9 @@
 package com.example.schedulemanager
 
-import android.Manifest
 import android.app.AlertDialog
 import android.content.ClipData
-import android.content.pm.PackageManager
 import android.graphics.Color
-import android.graphics.Typeface
 import android.graphics.drawable.GradientDrawable
-import android.location.Location
 import android.os.Bundle
 import android.view.GestureDetector
 import android.view.LayoutInflater
@@ -16,12 +12,10 @@ import android.view.View
 import android.view.ViewGroup
 import android.widget.LinearLayout
 import android.widget.NumberPicker
-import android.widget.TextView
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.content.ContextCompat
 import androidx.core.view.GestureDetectorCompat
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
@@ -40,16 +34,11 @@ import com.google.android.material.bottomsheet.BottomSheetBehavior
 import com.google.android.material.button.MaterialButton
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
-import com.google.android.gms.location.Priority
-import com.google.android.gms.tasks.CancellationTokenSource
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.suspendCancellableCoroutine
-import kotlinx.coroutines.withTimeoutOrNull
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
-import kotlin.coroutines.resume
 
 class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var binding: ActivityMainBinding
@@ -62,7 +51,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var locationPermissionLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var monthCalendarFragment: MonthCalendarFragment
     private lateinit var weeklyTimetable: WeeklyTimetableController
-    private var pendingLocationSearch: PendingLocationSearch? = null
+    private lateinit var locationSearchController: LocationSearchController
 
     private lateinit var holidayRepository: HolidayRepository
     private lateinit var locationSearchRepository: LocationSearchRepository
@@ -94,14 +83,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         repository = ScheduleRepository(database.scheduleDao(), database.categoryDao())
         locationClient = LocationServices.getFusedLocationProviderClient(this)
         locationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
-            val pending = pendingLocationSearch ?: return@registerForActivityResult
-            pendingLocationSearch = null
-            if (permissions.values.any { it }) {
-                searchLocationsWithCurrentPosition(pending.query, pending.onSelected)
-            } else {
-                Toast.makeText(this, "Searching without current location.", Toast.LENGTH_SHORT).show()
-                searchLocations(pending.query, pending.onSelected, null)
-            }
+            locationSearchController.onPermissionResult(permissions)
         }
         initExternalRepositories()
 
@@ -173,6 +155,13 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private fun initExternalRepositories() {
         holidayRepository = HolidayRepository(BuildConfig.GO_DATA_API_KEY)
         locationSearchRepository = LocationSearchRepository(BuildConfig.KAKAO_REST_API_KEY)
+        locationSearchController = LocationSearchController(
+            activity = this,
+            lifecycleScope = lifecycleScope,
+            locationClient = locationClient,
+            locationSearchRepository = locationSearchRepository,
+            permissionLauncher = locationPermissionLauncher
+        )
     }
 
     private fun fetchHolidaysForMonth(date: LocalDate) {
@@ -415,141 +404,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     }
 
     private fun showLocationSearch(query: String, onSelected: (KakaoPlace) -> Unit) {
-        if (query.isBlank()) {
-            Toast.makeText(this, "Enter a location first.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (BuildConfig.KAKAO_REST_API_KEY.isBlank()) {
-            Toast.makeText(this, "Kakao REST API key is missing.", Toast.LENGTH_SHORT).show()
-            return
-        }
-        if (hasLocationPermission()) {
-            searchLocationsWithCurrentPosition(query, onSelected)
-            return
-        }
-        pendingLocationSearch = PendingLocationSearch(query, onSelected)
-        locationPermissionLauncher.launch(
-            arrayOf(
-                Manifest.permission.ACCESS_FINE_LOCATION,
-                Manifest.permission.ACCESS_COARSE_LOCATION
-            )
-        )
-    }
-
-    private fun searchLocationsWithCurrentPosition(query: String, onSelected: (KakaoPlace) -> Unit) {
-        lifecycleScope.launch {
-            val location = currentLocationOrNull()
-            if (location == null) {
-                Toast.makeText(this@MainActivity, "Searching without current location.", Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(this@MainActivity, "Searching near current location.", Toast.LENGTH_SHORT).show()
-            }
-            searchLocations(query, onSelected, location)
-        }
-    }
-
-    private fun searchLocations(query: String, onSelected: (KakaoPlace) -> Unit, location: Location?) {
-        lifecycleScope.launch {
-            val result = runCatching { locationSearchRepository.search(query, location) }
-            val places = result.getOrNull().orEmpty()
-            if (result.isFailure) {
-                Toast.makeText(this@MainActivity, "Location search failed.", Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            if (places.isEmpty()) {
-                Toast.makeText(this@MainActivity, "No locations found.", Toast.LENGTH_SHORT).show()
-                return@launch
-            }
-            lateinit var dialog: AlertDialog
-            val list = locationResultList(places) { place ->
-                onSelected(place)
-                dialog.dismiss()
-            }
-            dialog = AlertDialog.Builder(this@MainActivity)
-                .setTitle("Select location")
-                .setView(list)
-                .setNegativeButton("Cancel", null)
-                .create()
-            dialog.setOnShowListener {
-                list.layoutParams = list.layoutParams.apply {
-                    height = dp(260)
-                }
-                list.requestLayout()
-            }
-            dialog.show()
-        }
-    }
-
-    private fun hasLocationPermission(): Boolean {
-        return ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-            ContextCompat.checkSelfPermission(this, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-    }
-
-    private suspend fun currentLocationOrNull(): Location? {
-        if (!hasLocationPermission()) {
-            return null
-        }
-        return withTimeoutOrNull(1200) {
-            cachedOrCurrentLocation()
-        }
-    }
-
-    private suspend fun cachedOrCurrentLocation(): Location? = suspendCancellableCoroutine { continuation ->
-        try {
-            locationClient.lastLocation
-                .addOnSuccessListener { cachedLocation ->
-                    if (!continuation.isActive) return@addOnSuccessListener
-                    if (cachedLocation != null) {
-                        continuation.resume(cachedLocation)
-                    } else {
-                        val tokenSource = CancellationTokenSource()
-                        continuation.invokeOnCancellation { tokenSource.cancel() }
-                        locationClient
-                            .getCurrentLocation(Priority.PRIORITY_BALANCED_POWER_ACCURACY, tokenSource.token)
-                            .addOnSuccessListener {
-                                if (continuation.isActive) continuation.resume(it)
-                            }
-                            .addOnFailureListener {
-                                if (continuation.isActive) continuation.resume(null)
-                            }
-                    }
-                }
-                .addOnFailureListener {
-                    if (continuation.isActive) continuation.resume(null)
-                }
-        } catch (_: SecurityException) {
-            if (continuation.isActive) continuation.resume(null)
-        }
-    }
-
-    private fun locationResultList(places: List<KakaoPlace>, onSelected: (KakaoPlace) -> Unit): View {
-        return LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            minimumHeight = dp(260)
-            layoutParams = ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260))
-            addView(
-                RecyclerView(this@MainActivity).apply {
-                    layoutManager = LinearLayoutManager(this@MainActivity)
-                    adapter = LocationAdapter(places, onSelected)
-                    overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
-                    isNestedScrollingEnabled = true
-                    setPadding(0, dp(4), 0, dp(4))
-                    addItemDecoration(
-                        object : RecyclerView.ItemDecoration() {
-                            override fun onDrawOver(canvas: android.graphics.Canvas, parent: RecyclerView, state: RecyclerView.State) {
-                                val paint = android.graphics.Paint().apply { color = Color.rgb(226, 231, 238) }
-                                for (index in 0 until parent.childCount - 1) {
-                                    val child = parent.getChildAt(index)
-                                    val y = child.bottom.toFloat()
-                                    canvas.drawRect(parent.paddingLeft.toFloat(), y, (parent.width - parent.paddingRight).toFloat(), y + dp(1), paint)
-                                }
-                            }
-                        }
-                    )
-                },
-                LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(260))
-            )
-        }
+        locationSearchController.search(query, onSelected)
     }
 
     private fun showScheduleDetail(schedule: ScheduleEntity) {
@@ -611,60 +466,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-
-    private data class PendingLocationSearch(
-        val query: String,
-        val onSelected: (KakaoPlace) -> Unit
-    )
-
-    private class LocationAdapter(
-        private val items: List<KakaoPlace>,
-        private val onClick: (KakaoPlace) -> Unit
-    ) : RecyclerView.Adapter<LocationAdapter.LocationViewHolder>() {
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): LocationViewHolder {
-            val density = parent.resources.displayMetrics.density
-            val container = LinearLayout(parent.context).apply {
-                orientation = LinearLayout.VERTICAL
-                setPadding((18 * density).toInt(), (12 * density).toInt(), (18 * density).toInt(), (12 * density).toInt())
-                layoutParams = RecyclerView.LayoutParams(
-                    ViewGroup.LayoutParams.MATCH_PARENT,
-                    ViewGroup.LayoutParams.WRAP_CONTENT
-                )
-            }
-            val nameText = TextView(parent.context).apply {
-                textSize = 15f
-                setTypeface(typeface, Typeface.BOLD)
-                setTextColor(Color.rgb(24, 32, 42))
-            }
-            val addressText = TextView(parent.context).apply {
-                textSize = 12f
-                setTextColor(Color.rgb(112, 124, 140))
-                setPadding(0, (3 * density).toInt(), 0, 0)
-            }
-            container.addView(nameText)
-            container.addView(addressText)
-            return LocationViewHolder(container, nameText, addressText, onClick)
-        }
-
-        override fun onBindViewHolder(holder: LocationViewHolder, position: Int) {
-            holder.bind(items[position])
-        }
-
-        override fun getItemCount(): Int = items.size
-
-        private class LocationViewHolder(
-            itemView: View,
-            private val nameText: TextView,
-            private val addressText: TextView,
-            private val onClick: (KakaoPlace) -> Unit
-        ) : RecyclerView.ViewHolder(itemView) {
-            fun bind(place: KakaoPlace) {
-                nameText.text = place.name
-                addressText.text = place.metaText
-                itemView.setOnClickListener { onClick(place) }
-            }
-        }
-    }
 
     private class ScheduleAdapter(
         private val onClick: (ScheduleEntity) -> Unit,
