@@ -1,16 +1,12 @@
 package com.example.schedulemanager
 
-import android.app.AlertDialog
 import android.content.ClipData
 import android.graphics.Color
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
 import android.widget.LinearLayout
-import android.widget.NumberPicker
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
 import androidx.activity.result.contract.ActivityResultContracts
@@ -28,7 +24,6 @@ import com.example.schedulemanager.data.ScheduleRepository
 import com.example.schedulemanager.data.ScheduleStatus
 import com.example.schedulemanager.databinding.ActivityMainBinding
 import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.button.MaterialButton
 import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.flow.combine
@@ -284,38 +279,11 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     }
 
     private fun showMonthPicker(currentMonth: LocalDate) {
-        val minYear = currentMonth.year - 50
-        val maxYear = currentMonth.year + 50
-        val yearPicker = NumberPicker(this).apply {
-            minValue = minYear
-            maxValue = maxYear
-            displayedValues = (minYear..maxYear).map { "${it}년" }.toTypedArray()
-            value = currentMonth.year
-            wrapSelectorWheel = false
-        }
-        val monthPicker = NumberPicker(this).apply {
-            minValue = 1
-            maxValue = 12
-            displayedValues = (1..12).map { "${it}월" }.toTypedArray()
-            value = currentMonth.monthValue
-            wrapSelectorWheel = true
-        }
-        val pickerRow = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER
-            setPadding(dp(12), dp(10), dp(12), 0)
-            addView(yearPicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(monthPicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        }
-        AlertDialog.Builder(this)
-            .setView(cardForm().apply { addView(pickerRow) })
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("OK") { _, _ ->
-                displayedMonth = LocalDate.of(yearPicker.value, monthPicker.value, 1)
-                fetchHolidaysForMonth(displayedMonth)
-                renderMainSurface()
-            }
-            .show()
+        MonthPickerDialog(this, currentMonth) { selectedMonth ->
+            displayedMonth = selectedMonth
+            fetchHolidaysForMonth(displayedMonth)
+            renderMainSurface()
+        }.show()
     }
 
     private fun focusDate(date: LocalDate) {
@@ -444,22 +412,8 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         binding.inboxRecycler.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start()
     }
 
-    private fun cardForm(): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(12), dp(20), dp(12))
-        background = cellBackground(Color.WHITE, Color.TRANSPARENT, 14)
-    }
-
     private fun categoryName(categoryId: Long?): String {
         return categories.firstOrNull { it.id == categoryId }?.name ?: "No category"
-    }
-
-    private fun cellBackground(fill: Int, stroke: Int, radiusDp: Int): GradientDrawable {
-        return GradientDrawable().apply {
-            color = android.content.res.ColorStateList.valueOf(fill)
-            cornerRadius = dp(radiusDp).toFloat()
-            if (stroke != Color.TRANSPARENT) setStroke(dp(1), stroke)
-        }
     }
 
     private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
