@@ -300,7 +300,7 @@ class GoogleCalendarSyncController(
         return status != ScheduleStatus.INBOX && scheduledDate != null && startTimeMinutes != null
     }
 
-    private fun saveProfile(profile: GoogleAccountProfile) {
+    fun saveProfile(profile: GoogleAccountProfile) {
         preferences.edit()
             .putString(KEY_ACCOUNT_NAME, profile.name)
             .putString(KEY_ACCOUNT_EMAIL, profile.email)

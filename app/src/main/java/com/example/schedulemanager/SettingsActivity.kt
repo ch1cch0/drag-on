@@ -1,9 +1,13 @@
+@file:Suppress("DEPRECATION")
+
 package com.example.schedulemanager
 
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import androidx.activity.result.ActivityResult
 import androidx.activity.result.ActivityResultLauncher
+import android.content.Intent
 import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
@@ -21,6 +25,10 @@ import com.example.schedulemanager.databinding.ActivitySettingsBinding
 import com.example.schedulemanager.external.google.GoogleAccountProfile
 import com.example.schedulemanager.external.google.GoogleCalendarRepository
 import com.example.schedulemanager.ui.google.GoogleCalendarSyncController
+import com.google.android.gms.auth.api.signin.GoogleSignIn
+import com.google.android.gms.auth.api.signin.GoogleSignInClient
+import com.google.android.gms.auth.api.signin.GoogleSignInOptions
+import com.google.android.gms.common.api.ApiException
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import org.json.JSONArray
@@ -33,6 +41,8 @@ class SettingsActivity : AppCompatActivity() {
     private lateinit var binding: ActivitySettingsBinding
     private lateinit var repository: ScheduleRepository
     private lateinit var googleAuthorizationLauncher: ActivityResultLauncher<IntentSenderRequest>
+    private lateinit var googleSignInLauncher: ActivityResultLauncher<Intent>
+    private lateinit var googleSignInClient: GoogleSignInClient
     private lateinit var backupFileLauncher: ActivityResultLauncher<String>
     private lateinit var restoreFileLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var googleCalendarSyncController: GoogleCalendarSyncController
@@ -56,6 +66,9 @@ class SettingsActivity : AppCompatActivity() {
         googleAuthorizationLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             googleCalendarSyncController.onAuthorizationResult(result)
         }
+        googleSignInLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+            onGoogleSignInResult(result)
+        }
         backupFileLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
             if (uri != null) {
                 writeBackupToUri(uri)
@@ -74,6 +87,13 @@ class SettingsActivity : AppCompatActivity() {
             calendarRepository = GoogleCalendarRepository(),
             authorizationLauncher = googleAuthorizationLauncher
         )
+        googleSignInClient = GoogleSignIn.getClient(
+            this,
+            GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
+                .requestEmail()
+                .requestProfile()
+                .build()
+        )
 
         bindActions()
         observeData()
@@ -82,7 +102,7 @@ class SettingsActivity : AppCompatActivity() {
     private fun bindActions() {
         binding.backButton.setOnClickListener { finish() }
         binding.googleAccountItem.setOnClickListener {
-            googleCalendarSyncController.signIn { renderGoogleAccount(it ?: googleCalendarSyncController.cachedProfile()) }
+            launchGoogleAccountSignIn()
         }
         binding.syncSwitch.setOnCheckedChangeListener { _, isChecked ->
             if (suppressSyncSwitchChange) return@setOnCheckedChangeListener
@@ -112,6 +132,33 @@ class SettingsActivity : AppCompatActivity() {
             }
         }
         renderGoogleAccount(googleCalendarSyncController.cachedProfile())
+        renderSyncState()
+    }
+
+    private fun launchGoogleAccountSignIn() {
+        googleSignInClient.signOut().addOnCompleteListener {
+            googleSignInLauncher.launch(googleSignInClient.signInIntent)
+        }
+    }
+
+    private fun onGoogleSignInResult(result: ActivityResult) {
+        if (result.data == null) {
+            Toast.makeText(this, "Google account login canceled.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val account = runCatching {
+            GoogleSignIn.getSignedInAccountFromIntent(result.data).getResult(ApiException::class.java)
+        }.getOrElse {
+            Toast.makeText(this, "Google account login failed.", Toast.LENGTH_SHORT).show()
+            return
+        }
+        val profile = GoogleAccountProfile(
+            name = account.displayName,
+            email = account.email,
+            pictureUrl = account.photoUrl?.toString()
+        )
+        googleCalendarSyncController.saveProfile(profile)
+        renderGoogleAccount(profile)
         renderSyncState()
     }
 
