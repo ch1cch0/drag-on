@@ -32,6 +32,8 @@ android {
         )
         val goDataKey = localProperties.getProperty("GO_DATA_API_KEY") ?: ""
         buildConfigField("String", "GO_DATA_API_KEY", "\"$goDataKey\"")
+        val googleCalendarClientId = localProperties.getProperty("GOOGLE_CALENDAR_CLIENT_ID") ?: ""
+        buildConfigField("String", "GOOGLE_CALENDAR_CLIENT_ID", "\"$googleCalendarClientId\"")
         buildConfigField("String", "AI_SERVER_URL", "\"https://drag-on-o2gw.onrender.com\"")
     }
 
