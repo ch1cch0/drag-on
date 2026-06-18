@@ -45,7 +45,8 @@
                 android:text=""
                 app:icon="@drawable/ic_calendar_sync_24"
                 app:iconGravity="textStart"
-                app:iconPadding="0dp" />
+                app:iconPadding="0dp"
+                app:iconTint="#7A8491" />
         </LinearLayout>
 
         <FrameLayout
