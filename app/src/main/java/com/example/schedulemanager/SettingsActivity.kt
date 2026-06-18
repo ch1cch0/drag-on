@@ -9,6 +9,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
+import com.bumptech.glide.Glide
+import com.bumptech.glide.load.resource.bitmap.CircleCrop
 import com.example.schedulemanager.data.AppDatabase
 import com.example.schedulemanager.data.CategoryEntity
 import com.example.schedulemanager.data.RepeatType
@@ -16,6 +18,7 @@ import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.data.ScheduleRepository
 import com.example.schedulemanager.data.ScheduleStatus
 import com.example.schedulemanager.databinding.ActivitySettingsBinding
+import com.example.schedulemanager.external.google.GoogleAccountProfile
 import com.example.schedulemanager.external.google.GoogleCalendarRepository
 import com.example.schedulemanager.ui.google.GoogleCalendarSyncController
 import kotlinx.coroutines.flow.combine
@@ -37,6 +40,7 @@ class SettingsActivity : AppCompatActivity() {
     private var schedules: List<ScheduleEntity> = emptyList()
     private var categories: List<CategoryEntity> = emptyList()
     private var pendingBackupJson: String? = null
+    private var suppressSyncSwitchChange = false
 
     private val backupFileDateFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
 
@@ -78,10 +82,16 @@ class SettingsActivity : AppCompatActivity() {
     private fun bindActions() {
         binding.backButton.setOnClickListener { finish() }
         binding.googleAccountItem.setOnClickListener {
-            Toast.makeText(this, "Connect Google Calendar to use your Google account.", Toast.LENGTH_SHORT).show()
+            googleCalendarSyncController.signIn { renderGoogleAccount(it ?: googleCalendarSyncController.cachedProfile()) }
         }
-        binding.googleCalendarSyncItem.setOnClickListener {
-            googleCalendarSyncController.showSyncDialog(schedules)
+        binding.syncSwitch.setOnCheckedChangeListener { _, isChecked ->
+            if (suppressSyncSwitchChange) return@setOnCheckedChangeListener
+            googleCalendarSyncController.setSyncEnabled(isChecked, schedules) {
+                renderSyncState()
+            }
+        }
+        binding.refreshSyncButton.setOnClickListener {
+            googleCalendarSyncController.syncAll(schedules) { renderSyncState() }
         }
         binding.downloadBackupItem.setOnClickListener {
             startBackupDownload()
@@ -98,8 +108,39 @@ class SettingsActivity : AppCompatActivity() {
             }.collect { (scheduleList, categoryList) ->
                 schedules = scheduleList
                 categories = categoryList
+                renderSyncState()
             }
         }
+        renderGoogleAccount(googleCalendarSyncController.cachedProfile())
+        renderSyncState()
+    }
+
+    private fun renderGoogleAccount(profile: GoogleAccountProfile?) {
+        val accountLabel = profile?.email ?: profile?.name
+        binding.accountNameText.text = accountLabel ?: "press 'Google account' to login"
+        val pictureUrl = profile?.pictureUrl
+        if (pictureUrl.isNullOrBlank()) {
+            Glide.with(this)
+                .load(R.drawable.ic_account_circle_96)
+                .into(binding.profileImage)
+        } else {
+            Glide.with(this)
+                .load(pictureUrl)
+                .placeholder(R.drawable.ic_account_circle_96)
+                .error(R.drawable.ic_account_circle_96)
+                .transform(CircleCrop())
+                .into(binding.profileImage)
+        }
+    }
+
+    private fun renderSyncState() {
+        val scheduledCount = schedules.count { it.status != ScheduleStatus.INBOX && it.scheduledDate != null && it.startTimeMinutes != null }
+        val enabled = googleCalendarSyncController.isSyncEnabled()
+        binding.syncSubtitleText.text = "scheduled items : $scheduledCount"
+        binding.refreshSyncButton.visibility = if (enabled) android.view.View.VISIBLE else android.view.View.GONE
+        suppressSyncSwitchChange = true
+        binding.syncSwitch.isChecked = enabled
+        suppressSyncSwitchChange = false
     }
 
     private fun startBackupDownload() {
