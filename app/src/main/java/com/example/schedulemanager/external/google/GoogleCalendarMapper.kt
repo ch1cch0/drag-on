@@ -13,7 +13,7 @@ object GoogleCalendarMapper {
         val date = schedule.scheduledDate?.let { LocalDate.ofEpochDay(it) }
             ?: error("Schedule has no date.")
         val startMinutes = schedule.startTimeMinutes ?: error("Schedule has no start time.")
-        val duration = schedule.durationMinutes ?: 60
+        val duration = schedule.durationMinutes?.takeIf { it > 0 } ?: DEFAULT_DURATION_MINUTES
         val start = date.atStartOfDay(zoneId).plusMinutes(startMinutes.toLong())
         val end = start.plusMinutes(duration.toLong())
 
@@ -54,4 +54,6 @@ object GoogleCalendarMapper {
             else -> null
         }
     }
+
+    private const val DEFAULT_DURATION_MINUTES = 60
 }

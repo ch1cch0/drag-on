@@ -45,7 +45,32 @@ class GoogleCalendarMapperTest {
         assertEquals("Asia/Seoul", event.getJSONObject("start").getString("timeZone"))
     }
 
-    private fun schedule(repeatType: RepeatType?): ScheduleEntity {
+    @Test
+    fun unsetDurationDefaultsToOneHour() {
+        val event = GoogleCalendarMapper.toEventJson(
+            schedule(repeatType = RepeatType.NONE, durationMinutes = null),
+            zoneId
+        )
+
+        assertEquals("2026-06-16T09:15+09:00", event.getJSONObject("start").getString("dateTime"))
+        assertEquals("2026-06-16T10:15+09:00", event.getJSONObject("end").getString("dateTime"))
+    }
+
+    @Test
+    fun zeroDurationDefaultsToOneHour() {
+        val event = GoogleCalendarMapper.toEventJson(
+            schedule(repeatType = RepeatType.NONE, durationMinutes = 0),
+            zoneId
+        )
+
+        assertEquals("2026-06-16T09:15+09:00", event.getJSONObject("start").getString("dateTime"))
+        assertEquals("2026-06-16T10:15+09:00", event.getJSONObject("end").getString("dateTime"))
+    }
+
+    private fun schedule(
+        repeatType: RepeatType?,
+        durationMinutes: Int? = 105
+    ): ScheduleEntity {
         val date = LocalDate.of(2026, 6, 16)
         return ScheduleEntity(
             id = 42,
@@ -54,7 +79,7 @@ class GoogleCalendarMapperTest {
             color = null,
             isRepeat = repeatType?.let { it != RepeatType.NONE },
             repeatType = repeatType,
-            durationMinutes = 105,
+            durationMinutes = durationMinutes,
             deadline = null,
             locationName = "Room 101",
             locationAddress = null,

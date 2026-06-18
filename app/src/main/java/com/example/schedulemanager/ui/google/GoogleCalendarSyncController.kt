@@ -66,7 +66,8 @@ class GoogleCalendarSyncController(
         if (!syncEnabled || !schedule.canSyncToGoogle()) return
         withAccessToken { token ->
             lifecycleScope.launch {
-                syncSchedule(token, schedule)
+                runCatching { syncSchedule(token, schedule) }
+                    .onFailure { showSyncFailureToast() }
             }
         }
     }
@@ -106,10 +107,10 @@ class GoogleCalendarSyncController(
     }
 
     private fun enableAndSyncAll(schedules: List<ScheduleEntity>) {
-        syncEnabled = true
-        preferences.edit().putBoolean(KEY_SYNC_ENABLED, true).apply()
         withAccessToken { token ->
             lifecycleScope.launch {
+                syncEnabled = true
+                preferences.edit().putBoolean(KEY_SYNC_ENABLED, true).apply()
                 val targets = schedules.filter { it.canSyncToGoogle() }
                 var success = 0
                 var failed = 0
@@ -170,6 +171,10 @@ class GoogleCalendarSyncController(
             return
         }
         Toast.makeText(activity, "Google authorization failed.", Toast.LENGTH_SHORT).show()
+    }
+
+    private fun showSyncFailureToast() {
+        Toast.makeText(activity, "Google Calendar sync failed.", Toast.LENGTH_SHORT).show()
     }
 
     private fun ScheduleEntity.canSyncToGoogle(): Boolean {
