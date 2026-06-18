@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.external
 
 import com.google.gson.annotations.SerializedName
 

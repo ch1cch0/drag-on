@@ -6,6 +6,13 @@ plugins {
     alias(libs.plugins.kotlin.kapt)
 }
 
+val localProperties = Properties().apply {
+    val localPropertiesFile = rootProject.file("local.properties")
+    if (localPropertiesFile.exists()) {
+        localPropertiesFile.inputStream().use { load(it) }
+    }
+}
+
 android {
     namespace = "com.example.schedulemanager"
     compileSdk = 36 // 표준 형식으로 간소화
@@ -18,18 +25,12 @@ android {
         versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
-
-        // ◀ [추가] local.properties 파일에서 GO_DATA_API_KEY 읽어와서 BuildConfig에 심기
-        val properties = Properties()
-        val propertiesFile = project.rootProject.file("local.properties")
-        if (propertiesFile.exists()) {
-            propertiesFile.inputStream().use { properties.load(it) }
-        }
-
-        // local.properties에 적어둔 키 값을 가져오고, 없으면 빈 문자열 처리
-        val goDataKey = properties.getProperty("GO_DATA_API_KEY") ?: ""
-
-        //BuildConfigField(데이터타입, 변수명, 값) 형태로 등록
+        buildConfigField(
+            "String",
+            "KAKAO_REST_API_KEY",
+            "\"${localProperties.getProperty("KAKAO_REST_API_KEY", "")}\""
+        )
+        val goDataKey = localProperties.getProperty("GO_DATA_API_KEY") ?: ""
         buildConfigField("String", "GO_DATA_API_KEY", "\"$goDataKey\"")
         buildConfigField("String", "AI_SERVER_URL", "\"https://drag-on-o2gw.onrender.com\"")
     }
@@ -52,7 +53,7 @@ android {
     }
     buildFeatures {
         viewBinding = true
-        buildConfig = true // ◀ [추가] BuildConfig 클래스를 자동으로 생성하도록 활성화
+        buildConfig = true
     }
 }
 
@@ -61,11 +62,14 @@ dependencies {
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.constraintlayout)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.fragment.ktx)
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.recyclerview)
+    implementation(libs.androidx.viewpager2)
     implementation(libs.androidx.room.ktx)
     implementation(libs.androidx.room.runtime)
     implementation(libs.material)
+    implementation(libs.play.services.location)
     kapt(libs.androidx.room.compiler)
     testImplementation(libs.junit)
     androidTestImplementation(libs.androidx.espresso.core)

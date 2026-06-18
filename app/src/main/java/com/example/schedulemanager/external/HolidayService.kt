@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.external
 
 import retrofit2.Call
 import retrofit2.http.GET

@@ -1,4 +1,4 @@
-package com.example.schedulemanager
+package com.example.schedulemanager.ui.month
 
 import android.content.Context
 import android.graphics.Canvas
@@ -8,8 +8,8 @@ import android.graphics.RectF
 import android.util.AttributeSet
 import android.view.MotionEvent
 import android.view.View
+import com.example.schedulemanager.external.Holiday
 import java.time.LocalDate
-import java.time.format.DateTimeFormatter
 import java.time.temporal.TemporalAdjusters
 import kotlin.math.floor
 import kotlin.math.roundToInt
@@ -30,7 +30,7 @@ class MonthCalendarView @JvmOverloads constructor(
         }
 
     // ◀ [추가] MainActivity로부터 공휴일 데이터를 전달받을 변수
-    var holidays: List<HolidayItem> = emptyList()
+    var holidays: List<Holiday> = emptyList()
         set(value) {
             field = value
             invalidate() // 데이터가 들어오면 달력을 다시 그리도록 갱신
@@ -39,10 +39,16 @@ class MonthCalendarView @JvmOverloads constructor(
     var onDateSelected: ((LocalDate) -> Unit)? = null
     var onMonthChanged: ((LocalDate) -> Unit)? = null
     var onTodaySelected: (() -> Unit)? = null
+    var onMonthTitleSelected: ((LocalDate) -> Unit)? = null
+    var showNavigation: Boolean = true
+        set(value) {
+            field = value
+            requestLayout()
+            invalidate()
+        }
 
     private val density = resources.displayMetrics.density
     private val dayLabels = listOf("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
-    private val monthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy")
     private val corner = 10f * density
     private val navHeight = 44f * density
     private val headerHeight = 34f * density
@@ -85,8 +91,8 @@ class MonthCalendarView @JvmOverloads constructor(
         val cellWidth = (width - paddingStart - paddingEnd - cellGap * 6f) / 7f
         val cellHeight = cellWidth.coerceAtMost(54f * density)
         val desiredHeight = (
-                paddingTop + navHeight + headerHeight + cellHeight * 6f + cellGap * 5f + paddingBottom
-                ).roundToInt()
+            paddingTop + navigationHeight() + headerHeight + cellHeight * 6f + cellGap * 5f + paddingBottom
+            ).roundToInt()
         setMeasuredDimension(resolveSize(width, widthMeasureSpec), resolveSize(desiredHeight, heightMeasureSpec))
     }
 
@@ -98,8 +104,8 @@ class MonthCalendarView @JvmOverloads constructor(
         val cellWidth = (contentWidth - cellGap * 6f) / 7f
         val cellHeight = cellWidth.coerceAtMost(54f * density)
 
-        drawNavigation(canvas, contentLeft, contentRight)
-        val headerTop = paddingTop + navHeight
+        if (showNavigation) drawNavigation(canvas, contentLeft, contentRight)
+        val headerTop = paddingTop + navigationHeight()
         drawDayHeader(canvas, contentLeft, headerTop, cellWidth)
         drawDates(canvas, contentLeft, headerTop + headerHeight, cellWidth, cellHeight)
     }
@@ -107,9 +113,10 @@ class MonthCalendarView @JvmOverloads constructor(
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (event.action != MotionEvent.ACTION_UP) return true
         when {
-            previousRect.contains(event.x, event.y) -> onMonthChanged?.invoke(displayedMonth.minusMonths(1))
-            todayRect.contains(event.x, event.y) -> onTodaySelected?.invoke()
-            nextRect.contains(event.x, event.y) -> onMonthChanged?.invoke(displayedMonth.plusMonths(1))
+            showNavigation && previousRect.contains(event.x, event.y) -> onMonthChanged?.invoke(displayedMonth.minusMonths(1))
+            showNavigation && todayRect.contains(event.x, event.y) -> onTodaySelected?.invoke()
+            showNavigation && nextRect.contains(event.x, event.y) -> onMonthChanged?.invoke(displayedMonth.plusMonths(1))
+            showNavigation && monthTitleRect.contains(event.x, event.y) -> onMonthTitleSelected?.invoke(displayedMonth)
             else -> dateAt(event.x, event.y)?.let { onDateSelected?.invoke(it) }
         }
         return true
@@ -131,7 +138,7 @@ class MonthCalendarView @JvmOverloads constructor(
         drawCentered(canvas, "<", previousRect, navPaint)
         drawCentered(canvas, "Today", todayRect, navPaint)
         drawCentered(canvas, ">", nextRect, navPaint)
-        drawCentered(canvas, displayedMonth.format(monthFormatter), monthTitleRect, titlePaint)
+        drawCentered(canvas, "${displayedMonth.year}년 ${displayedMonth.monthValue}월", monthTitleRect, titlePaint)
     }
 
     private fun drawDayHeader(canvas: Canvas, left: Float, top: Float, cellWidth: Float) {
@@ -186,8 +193,7 @@ class MonthCalendarView @JvmOverloads constructor(
 
     // ◀ [추가] 날짜 매칭용 헬퍼 함수
     private fun checkIsHoliday(date: LocalDate): Boolean {
-        val targetDateInt = date.year * 10000 + date.monthValue * 100 + date.dayOfMonth
-        return holidays.any { it.locdate == targetDateInt }
+        return holidays.any { it.date == date }
     }
 
     private fun dateAt(x: Float, y: Float): LocalDate? {
@@ -195,7 +201,7 @@ class MonthCalendarView @JvmOverloads constructor(
         val contentWidth = width - paddingStart - paddingEnd.toFloat()
         val cellWidth = (contentWidth - cellGap * 6f) / 7f
         val cellHeight = cellWidth.coerceAtMost(54f * density)
-        val top = paddingTop + navHeight + headerHeight
+        val top = paddingTop + navigationHeight() + headerHeight
         if (y < top) return null
         val column = floor((x - contentLeft) / (cellWidth + cellGap)).toInt()
         val row = floor((y - top) / (cellHeight + cellGap)).toInt()
@@ -217,6 +223,8 @@ class MonthCalendarView @JvmOverloads constructor(
         val y = rect.centerY() - (paint.descent() + paint.ascent()) / 2f
         canvas.drawText(text, rect.centerX(), y, paint)
     }
+
+    private fun navigationHeight(): Float = if (showNavigation) navHeight else 0f
 
     private fun weekendColor(dayOfWeek: Int): Int? = when (dayOfWeek) {
         6 -> Color.rgb(34, 108, 224)

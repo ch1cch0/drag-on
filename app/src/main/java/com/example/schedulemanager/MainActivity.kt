@@ -1,83 +1,71 @@
 package com.example.schedulemanager
 
-import android.app.AlertDialog
 import android.content.ClipData
-import android.graphics.Canvas
 import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.RectF
-import android.graphics.Typeface
-import android.graphics.drawable.GradientDrawable
 import android.os.Bundle
-import android.util.Log
 import android.view.GestureDetector
-import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.View
-import android.view.ViewGroup
-import android.widget.AdapterView
-import android.widget.ArrayAdapter
-import android.widget.DatePicker
-import android.widget.EditText
-import android.widget.LinearLayout
-import android.widget.NumberPicker
-import android.widget.ScrollView
-import android.widget.Spinner
-import android.widget.TextView
 import android.widget.Toast
+import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GestureDetectorCompat
-import androidx.core.view.ViewCompat
-import androidx.core.view.WindowInsetsCompat
+import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
-import androidx.recyclerview.widget.ItemTouchHelper
-import androidx.recyclerview.widget.LinearLayoutManager
-import androidx.recyclerview.widget.RecyclerView
 import com.example.schedulemanager.data.AppDatabase
 import com.example.schedulemanager.data.CategoryEntity
-import com.example.schedulemanager.data.RepeatType
 import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.data.ScheduleRepository
 import com.example.schedulemanager.data.ScheduleStatus
 import com.example.schedulemanager.databinding.ActivityMainBinding
-import com.example.schedulemanager.databinding.ItemScheduleBinding
-import com.google.android.material.bottomsheet.BottomSheetBehavior
-import com.google.android.material.button.MaterialButton
-import kotlinx.coroutines.Dispatchers
+import com.example.schedulemanager.external.Holiday
+import com.example.schedulemanager.external.HolidayRepository
+import com.example.schedulemanager.external.KakaoPlace
+import com.example.schedulemanager.external.LocationSearchRepository
+import com.example.schedulemanager.ui.category.CategoryEditorDialog
+import com.example.schedulemanager.ui.category.CategoryManagerDialog
+import com.example.schedulemanager.ui.inbox.InboxBottomSheetController
+import com.example.schedulemanager.ui.inbox.InboxScheduleAdapter
+import com.example.schedulemanager.ui.location.LocationSearchController
+import com.example.schedulemanager.ui.month.MonthCalendarFragment
+import com.example.schedulemanager.ui.month.MonthPickerDialog
+import com.example.schedulemanager.ui.schedule.ScheduleDetailDialog
+import com.example.schedulemanager.ui.schedule.ScheduleEditorDialog
+import com.example.schedulemanager.ui.week.MainSurfaceController
+import com.example.schedulemanager.ui.week.WeeklyTimetableController
+import com.google.android.gms.location.FusedLocationProviderClient
+import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import retrofit2.Retrofit
-import retrofit2.converter.gson.GsonConverterFactory
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
-import java.time.temporal.TemporalAdjusters
 import kotlin.math.abs
 
-class MainActivity : AppCompatActivity() {
+class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var binding: ActivityMainBinding
     private lateinit var repository: ScheduleRepository
-    private lateinit var inboxAdapter: ScheduleAdapter
-    private lateinit var bottomSheetBehavior: BottomSheetBehavior<LinearLayout>
+    private lateinit var inboxAdapter: InboxScheduleAdapter
+    private lateinit var inboxController: InboxBottomSheetController
     private lateinit var gestureDetector: GestureDetectorCompat
     private lateinit var scaleDetector: android.view.ScaleGestureDetector
+    private lateinit var locationClient: FusedLocationProviderClient
+    private lateinit var locationPermissionLauncher: ActivityResultLauncher<Array<String>>
+    private lateinit var monthCalendarFragment: MonthCalendarFragment
+    private lateinit var weeklyTimetable: WeeklyTimetableController
+    private lateinit var mainSurfaceController: MainSurfaceController
+    private lateinit var locationSearchController: LocationSearchController
 
-    private lateinit var holidayService: HolidayService
-    private lateinit var recommenderService: RecommenderService
+    private lateinit var holidayRepository: HolidayRepository
+    private lateinit var locationSearchRepository: LocationSearchRepository
 
     private var schedules: List<ScheduleEntity> = emptyList()
     private var categories: List<CategoryEntity> = emptyList()
-    private var selectedDate: LocalDate = LocalDate.now()
-    private var selectedWeekStart: LocalDate = weekStart(LocalDate.now())
-    private var focusedDay = LocalDate.now().dayOfWeek.value
     private var displayedMonth: LocalDate = LocalDate.now().withDayOfMonth(1)
-    private var calendarMode = false
+    private var cumulativeScale = 1f
 
-    private var currentHolidays: List<HolidayItem> = emptyList()
+    private var currentHolidays: List<Holiday> = emptyList()
 
-    private val dateFormatter = DateTimeFormatter.ISO_LOCAL_DATE
-    private val deadlineFormatter = DateTimeFormatter.ofPattern("yyyy.MM.dd")
-    private val monthFormatter = DateTimeFormatter.ofPattern("MMMM yyyy")
     private val shortDateFormatter = DateTimeFormatter.ofPattern("M/d")
 
     private val colorOptions = listOf(
@@ -95,113 +83,39 @@ class MainActivity : AppCompatActivity() {
 
         val database = AppDatabase.getInstance(this)
         repository = ScheduleRepository(database.scheduleDao(), database.categoryDao())
-
-        initRetrofit()
-
-        ViewCompat.setOnApplyWindowInsetsListener(binding.main) { view, insets ->
-            val systemBars = insets.getInsets(WindowInsetsCompat.Type.systemBars())
-            view.setPadding(systemBars.left, systemBars.top, systemBars.right, systemBars.bottom)
-            insets
+        locationClient = LocationServices.getFusedLocationProviderClient(this)
+        locationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
+            locationSearchController.onPermissionResult(permissions)
         }
+        initExternalRepositories()
 
-        bottomSheetBehavior = BottomSheetBehavior.from(binding.inboxSheet)
-        inboxAdapter = ScheduleAdapter(
+        inboxAdapter = InboxScheduleAdapter(
             onClick = { showScheduleEditor(it) },
             onLongClick = { schedule, itemView -> startScheduleDrag(schedule, itemView) },
             categoryName = { id -> categoryName(id) }
         )
-        binding.inboxRecycler.layoutManager = LinearLayoutManager(this)
-        binding.inboxRecycler.adapter = inboxAdapter
-
-        // 인박스 리사이클러뷰에 왼쪽 스와이프 삭제 기능 바인딩
-        val swipeHandler = object : ItemTouchHelper.SimpleCallback(0, ItemTouchHelper.LEFT) {
-            override fun onMove(
-                recyclerView: RecyclerView,
-                viewHolder: RecyclerView.ViewHolder,
-                target: RecyclerView.ViewHolder
-            ): Boolean = false
-
-            override fun onSwiped(viewHolder: RecyclerView.ViewHolder, direction: Int) {
-                val position = viewHolder.adapterPosition
-                val targetSchedule = inboxAdapter.getScheduleAt(position) ?: return
-
-                AlertDialog.Builder(this@MainActivity)
-                    .setTitle("Delete schedule?")
-                    .setMessage(targetSchedule.title)
-                    .setNegativeButton("Cancel") { _, _ ->
-                        inboxAdapter.notifyItemChanged(position)
-                    }
-                    .setPositiveButton("Delete") { _, _ ->
-                        lifecycleScope.launch {
-                            repository.deleteSchedule(targetSchedule)
-                        }
-                    }
-                    .setOnCancelListener {
-                        inboxAdapter.notifyItemChanged(position)
-                    }
-                    .show()
-            }
-
-            override fun onChildDraw(
-                c: Canvas, recyclerView: RecyclerView, viewHolder: RecyclerView.ViewHolder,
-                dX: Float, dY: Float, actionState: Int, isCurrentlyActive: Boolean
-            ) {
-                val itemView = viewHolder.itemView
-                if (dX < 0) {
-                    val paint = Paint().apply { color = Color.rgb(214, 48, 49) }
-                    val background = RectF(
-                        itemView.right.toFloat() + dX, itemView.top.toFloat(),
-                        itemView.right.toFloat(), itemView.bottom.toFloat()
-                    )
-                    c.drawRoundRect(background, dp(10).toFloat(), dp(10).toFloat(), paint)
-
-                    val textPaint = Paint().apply {
-                        color = Color.WHITE
-                        textSize = dp(14).toFloat()
-                        typeface = Typeface.DEFAULT_BOLD
-                        textAlign = Paint.Align.CENTER
-                    }
-                    val textY = itemView.top.toFloat() + (itemView.height.toFloat() / 2) - ((textPaint.descent() + textPaint.ascent()) / 2)
-                    c.drawText("삭제", itemView.right.toFloat() - dp(32), textY, textPaint)
-                }
-                super.onChildDraw(c, recyclerView, viewHolder, dX, dY, actionState, isCurrentlyActive)
-            }
-        }
-        ItemTouchHelper(swipeHandler).attachToRecyclerView(binding.inboxRecycler)
-
-        // 우측 상단 Today 버튼 클릭 리스너 결합 연동
-        binding.todayButton.setOnClickListener {
-            selectedDate = LocalDate.now()
-            selectedWeekStart = weekStart(selectedDate)
-            focusedDay = selectedDate.dayOfWeek.value
-            displayedMonth = selectedDate.withDayOfMonth(1)
-
-            renderMainSurface()
-            fetchHolidaysForMonth(displayedMonth)
-        }
-
-        binding.addButton.setOnClickListener { showScheduleEditor(null) }
-        binding.categoryButton.setOnClickListener { showCategoryManager() }
-        binding.weekHeader.headerOnly = true
-        binding.weekHeader.onDayFocus = { focusDate(it) }
-        binding.weekSchedule.onScheduleClick = { showScheduleDetail(it) }
-        binding.weekSchedule.onDayFocus = { focusDate(it) }
-        binding.weekSchedule.onScheduleDrop = { id, date, day, minutes ->
-            placeSchedule(id, date, day, minutes)
-        }
-        binding.monthCalendar.onDateSelected = { focusDate(it) }
-        binding.monthCalendar.onMonthChanged = {
-            displayedMonth = it
-            renderMainSurface()
-            fetchHolidaysForMonth(it)
-        }
-        binding.monthCalendar.onTodaySelected = {
-            selectedDate = LocalDate.now()
-            selectedWeekStart = weekStart(selectedDate)
-            focusedDay = selectedDate.dayOfWeek.value
-            displayedMonth = selectedDate.withDayOfMonth(1)
-            renderMainSurface()
-            fetchHolidaysForMonth(displayedMonth)
+        inboxController = InboxBottomSheetController(binding, inboxAdapter)
+        inboxController.setup(
+            onAddSchedule = { showScheduleEditor(null) },
+            onManageCategories = { showCategoryManager() }
+        )
+        weeklyTimetable = WeeklyTimetableController(
+            binding = binding,
+            titleFormatter = shortDateFormatter,
+            onScheduleClick = { showScheduleDetail(it) },
+            onScheduleDrop = { id, date, day, minutes -> placeSchedule(id, date, day, minutes) },
+            onPinch = { mainSurfaceController.handlePinchScale(it) },
+            onFocusChanged = { focusDate(it) }
+        )
+        mainSurfaceController = MainSurfaceController(
+            binding = binding,
+            inboxController = inboxController,
+            weeklyTimetable = weeklyTimetable,
+            onRenderMonthlyCalendar = { renderMonthlyCalendar() }
+        )
+        monthCalendarFragment = MonthCalendarFragment()
+        supportFragmentManager.commit {
+            replace(binding.monthFragmentContainer.id, monthCalendarFragment)
         }
 
         installGestures()
@@ -213,68 +127,39 @@ class MainActivity : AppCompatActivity() {
             }.collect { (scheduleList, categoryList) ->
                 schedules = scheduleList
                 categories = categoryList
-                renderInbox()
-                renderMainSurface()
+                weeklyTimetable.schedules = scheduleList
+                inboxController.render(scheduleList)
+                mainSurfaceController.render()
             }
         }
 
         fetchHolidaysForMonth(displayedMonth)
     }
 
-    private fun initRetrofit() {
-        val retrofitHoliday = Retrofit.Builder()
-            .baseUrl("https://apis.data.go.kr/")
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-        holidayService = retrofitHoliday.create(HolidayService::class.java)
-
-        val aiBaseUrl = BuildConfig.AI_SERVER_URL
-
-        val retrofitAi = Retrofit.Builder()
-            .baseUrl(aiBaseUrl)
-            .addConverterFactory(GsonConverterFactory.create())
-            .build()
-        recommenderService = retrofitAi.create(RecommenderService::class.java)
+    private fun initExternalRepositories() {
+        holidayRepository = HolidayRepository(BuildConfig.GO_DATA_API_KEY)
+        locationSearchRepository = LocationSearchRepository(BuildConfig.KAKAO_REST_API_KEY)
+        locationSearchController = LocationSearchController(
+            activity = this,
+            lifecycleScope = lifecycleScope,
+            locationClient = locationClient,
+            locationSearchRepository = locationSearchRepository,
+            permissionLauncher = locationPermissionLauncher
+        )
     }
 
     private fun fetchHolidaysForMonth(date: LocalDate) {
-        val year = date.year
-        val monthStr = String.format("%02d", date.monthValue)
-        val apiKey = BuildConfig.GO_DATA_API_KEY
-
-        Log.d("HolidayAPI", "현재 주입된 API KEY: $apiKey")
-
         lifecycleScope.launch {
-            try {
-                val response = withContext(Dispatchers.IO) {
-                    holidayService.getHolidays(
-                        serviceKey = apiKey,
-                        solYear = year,
-                        solMonth = monthStr
-                    ).execute()
-                }
-
-                if (response.isSuccessful) {
-                    val holidayList = response.body()?.response?.body?.items?.item
-                    currentHolidays = holidayList ?: emptyList()
-
-                    if (!currentHolidays.isNullOrEmpty()) {
-                        currentHolidays.forEach { holiday ->
-                            Log.d("HolidayAPI", "공휴일 발견 -> 이름: ${holiday.dateName}, 날짜: ${holiday.locdate}")
-                        }
-                    } else {
-                        Log.d("HolidayAPI", "${year}년 ${monthStr}월에는 공휴일이 없습니다.")
-                    }
-
-                    withContext(Dispatchers.Main) {
-                        renderMainSurface()
-                    }
-
-                } else {
-                    Log.e("HolidayAPI", "API 요청 실패 코드: ${response.code()}")
-                }
-            } catch (e: Exception) {
-                Log.e("HolidayAPI", "통신 중 오류 발생: ${e.message}", e)
+            val result = runCatching { holidayRepository.holidaysForMonth(date) }
+            if (result.isSuccess) {
+                currentHolidays = result.getOrDefault(emptyList())
+                weeklyTimetable.holidays = currentHolidays
+                mainSurfaceController.render()
+            } else {
+                currentHolidays = emptyList()
+                weeklyTimetable.holidays = currentHolidays
+                mainSurfaceController.render()
+                Toast.makeText(this@MainActivity, "Holiday data could not be loaded.", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -291,9 +176,13 @@ class MainActivity : AppCompatActivity() {
                     velocityX: Float,
                     velocityY: Float
                 ): Boolean {
-                    if (calendarMode || abs(velocityX) < abs(velocityY)) return false
-                    if (velocityX < -350) focusDate(dateForDay((focusedDay + 1).coerceAtMost(7)))
-                    if (velocityX > 350) focusDate(dateForDay((focusedDay - 1).coerceAtLeast(1)))
+                    if (mainSurfaceController.calendarMode || abs(velocityX) < abs(velocityY)) return false
+                    if (velocityX < -350) {
+                        focusDate(weeklyTimetable.dateForDay((weeklyTimetable.focusedDay + 1).coerceAtMost(7)))
+                    }
+                    if (velocityX > 350) {
+                        focusDate(weeklyTimetable.dateForDay((weeklyTimetable.focusedDay - 1).coerceAtLeast(1)))
+                    }
                     return true
                 }
             }
@@ -301,14 +190,18 @@ class MainActivity : AppCompatActivity() {
         scaleDetector = android.view.ScaleGestureDetector(
             this,
             object : android.view.ScaleGestureDetector.SimpleOnScaleGestureListener() {
+                override fun onScaleBegin(detector: android.view.ScaleGestureDetector): Boolean {
+                    cumulativeScale = 1f
+                    return true
+                }
+
+                override fun onScale(detector: android.view.ScaleGestureDetector): Boolean {
+                    cumulativeScale *= detector.scaleFactor
+                    return true
+                }
+
                 override fun onScaleEnd(detector: android.view.ScaleGestureDetector) {
-                    if (detector.scaleFactor < 0.92f && !calendarMode) {
-                        calendarMode = true
-                        renderMainSurface()
-                    } else if (detector.scaleFactor > 1.08f && calendarMode) {
-                        calendarMode = false
-                        renderMainSurface()
-                    }
+                    mainSurfaceController.handlePinchScale(cumulativeScale)
                 }
             }
         )
@@ -319,67 +212,60 @@ class MainActivity : AppCompatActivity() {
         }
     }
 
-    private fun renderMainSurface() {
-        binding.scheduleSurface.animate().alpha(0.78f).setDuration(80).withEndAction {
-            if (calendarMode) {
-                binding.weekScroll.visibility = View.GONE
-                binding.calendarScroll.visibility = View.VISIBLE
-                renderMonthlyCalendar()
-            } else {
-                binding.calendarScroll.visibility = View.GONE
-                binding.weekScroll.visibility = View.VISIBLE
-                renderTimetable()
-            }
-            binding.scheduleSurface.animate().alpha(1f).setDuration(130).start()
-        }.start()
-    }
-
-    private fun renderInbox() {
-        val inboxItems = schedules.filter { it.status == ScheduleStatus.INBOX }
-        binding.inboxTitle.text = "Inbox (${inboxItems.size})"
-        inboxAdapter.submit(inboxItems)
-    }
-
-    private fun renderTimetable() {
-        val weekEnd = selectedWeekStart.plusDays(6)
-        binding.titleText.text = "${selectedWeekStart.format(shortDateFormatter)} - ${weekEnd.format(shortDateFormatter)}"
-        binding.weekHeader.selectedWeekStart = selectedWeekStart
-        binding.weekHeader.focusedDay = focusedDay
-
-        // ◀ [공휴일 바인딩] 복구된 주간 요일 통합 컴포넌트에 공휴일 주입 완료
-        binding.weekHeader.holidays = currentHolidays
-
-        binding.weekSchedule.schedules = schedules
-        binding.weekSchedule.selectedWeekStart = selectedWeekStart
-        binding.weekSchedule.focusedDay = focusedDay
-    }
-
     private fun renderMonthlyCalendar() {
-        binding.titleText.text = displayedMonth.format(monthFormatter)
-        binding.monthCalendar.displayedMonth = displayedMonth
-        binding.monthCalendar.selectedDate = selectedDate
-        binding.monthCalendar.holidays = currentHolidays
+        monthCalendarFragment.displayedMonth = displayedMonth
+        monthCalendarFragment.selectedDate = weeklyTimetable.selectedDate
+        monthCalendarFragment.holidays = currentHolidays
+    }
+
+    private fun showMonthPicker(currentMonth: LocalDate) {
+        MonthPickerDialog(this, currentMonth) { selectedMonth ->
+            displayedMonth = selectedMonth
+            fetchHolidaysForMonth(displayedMonth)
+            mainSurfaceController.render()
+        }.show()
     }
 
     private fun focusDate(date: LocalDate) {
-        if (date == selectedDate && !calendarMode) return
-        selectedDate = date
-        selectedWeekStart = weekStart(date)
-        focusedDay = date.dayOfWeek.value
-        calendarMode = false
-        renderMainSurface()
+        if (date == weeklyTimetable.selectedDate && !mainSurfaceController.calendarMode) return
+        weeklyTimetable.focusDate(date)
+        mainSurfaceController.showWeek()
+    }
 
-        if (displayedMonth.monthValue != date.monthValue || displayedMonth.year != date.year) {
-            displayedMonth = date.withDayOfMonth(1)
+    override fun onMonthDateSelected(date: LocalDate) {
+        focusDate(date)
+    }
+
+    override fun onMonthChanged(month: LocalDate) {
+        val previousMonth = displayedMonth
+        displayedMonth = month
+        if (previousMonth.year != displayedMonth.year || previousMonth.monthValue != displayedMonth.monthValue) {
             fetchHolidaysForMonth(displayedMonth)
+        }
+        if (mainSurfaceController.calendarMode) {
+            renderMonthlyCalendar()
+        } else {
+            mainSurfaceController.render()
         }
     }
 
+    override fun onMonthTodaySelected() {
+        weeklyTimetable.focusToday()
+        displayedMonth = weeklyTimetable.selectedDate.withDayOfMonth(1)
+        fetchHolidaysForMonth(displayedMonth)
+        mainSurfaceController.render()
+    }
+
+    override fun onMonthTitleSelected(month: LocalDate) {
+        showMonthPicker(month)
+    }
+
     private fun startScheduleDrag(schedule: ScheduleEntity, itemView: View): Boolean {
-        bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
+        inboxController.collapse()
         val data = ClipData.newPlainText("scheduleId", schedule.id.toString())
         val shadow = View.DragShadowBuilder(itemView)
         itemView.startDragAndDrop(data, shadow, schedule.id, 0)
+        Toast.makeText(this, "Drop on a time slot.", Toast.LENGTH_SHORT).show()
         return true
     }
 
@@ -403,591 +289,59 @@ class MainActivity : AppCompatActivity() {
             Toast.makeText(this, "Create a category first.", Toast.LENGTH_SHORT).show()
             return
         }
-
-        val dialogView = layoutInflater.inflate(R.layout.dialog_smart_editor, null)
-        val nlpInput = dialogView.findViewById<EditText>(R.id.smartNlpInput)
-        val nlpButton = dialogView.findViewById<MaterialButton>(R.id.smartNlpButton)
-        val manualContainer = dialogView.findViewById<LinearLayout>(R.id.manualFormContainer)
-
-        manualContainer.addView(label("Title"))
-        val titleInput = EditText(this).apply {
-            hint = "Title"
-            setText(schedule?.title.orEmpty())
-            setSingleLine(true)
-        }
-        manualContainer.addView(titleInput)
-
-        val categorySpinner = Spinner(this)
-        val colorSpinner = Spinner(this)
-        val repeatModeSpinner = Spinner(this)
-
-        val hourPicker = NumberPicker(this).apply {
-            minValue = 0; maxValue = 8; wrapSelectorWheel = false
-            value = (schedule?.durationMinutes ?: 0) / 60
-        }
-        val minuteValues = arrayOf("00", "15", "30", "45")
-        val minutePicker = NumberPicker(this).apply {
-            minValue = 0; maxValue = minuteValues.lastIndex; displayedValues = minuteValues; wrapSelectorWheel = false
-            value = when ((schedule?.durationMinutes ?: -1) % 60) { 15 -> 1; 30 -> 2; 45 -> 3; else -> 0 }
-        }
-
-        var selectedDeadline: LocalDate? = schedule?.deadline?.let { dateFromEpochDay(it) }
-        val deadlineInput = EditText(this).apply {
-            hint = "YYYY.MM.DD"
-            setText(selectedDeadline?.format(deadlineFormatter).orEmpty())
-            setSingleLine(true)
-            isFocusable = false; isCursorVisible = false; isClickable = true
-            background = getDrawable(R.drawable.bg_date_input)
-            setCompoundDrawablesWithIntrinsicBounds(0, 0, R.drawable.ic_calendar_24, 0)
-            compoundDrawablePadding = dp(10)
-            setPadding(dp(12), 0, dp(12), 0)
-            minHeight = dp(48)
-        }
-        deadlineInput.setOnClickListener {
-            showDeadlinePicker(selectedDeadline) { date ->
-                selectedDeadline = date
-                deadlineInput.setText(date?.format(deadlineFormatter).orEmpty())
-            }
-        }
-
-        categorySpinner.adapter = simpleAdapter(listOf("Unset") + categories.map { it.name })
-        categorySpinner.setSelection(categories.indexOfFirst { it.id == schedule?.categoryId }.takeIf { it >= 0 }?.plus(1) ?: 0)
-
-        colorSpinner.adapter = simpleAdapter(listOf("Unset") + colorOptions.map { it.first })
-        colorSpinner.setSelection(colorOptions.indexOfFirst { it.second == schedule?.color }.takeIf { it >= 0 }?.plus(1) ?: 0)
-
-        repeatModeSpinner.adapter = simpleAdapter(listOf("Unset", "One-time", "Weekly", "Daily"))
-        repeatModeSpinner.setSelection(when (schedule?.repeatType) { null -> 0; RepeatType.NONE -> 1; RepeatType.WEEKLY -> 2; RepeatType.DAILY -> 3 })
-
-        manualContainer.addView(label("Category")); manualContainer.addView(categorySpinner)
-        manualContainer.addView(label("Color")); manualContainer.addView(colorSpinner)
-        manualContainer.addView(label("Repeat / One-time")); manualContainer.addView(repeatModeSpinner)
-        manualContainer.addView(label("Duration"))
-        manualContainer.addView(LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            addView(hourPicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            addView(minutePicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-        })
-        manualContainer.addView(label("Deadline")); manualContainer.addView(deadlineInput)
-
-        categorySpinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
-            override fun onItemSelected(parent: AdapterView<*>?, view: View?, position: Int, id: Long) {
-                if (position > 0) {
-                    val category = categories[position - 1]
-                    if (schedule?.durationMinutes == null && hourPicker.value == 0 && minutePicker.value == 0) {
-                        category.defaultDurationMinutes?.let { hourPicker.value = it / 60; minutePicker.value = (it % 60) / 15 }
-                    }
-                    if (schedule?.repeatType == null && repeatModeSpinner.selectedItemPosition == 0) {
-                        category.defaultRepeatType?.let { repeatType ->
-                            repeatModeSpinner.setSelection(when (repeatType) { RepeatType.NONE -> 1; RepeatType.WEEKLY -> 2; RepeatType.DAILY -> 3 })
-                        }
-                    }
-                    category.defaultColor?.let { defaultColor ->
-                        val colorIndex = colorOptions.indexOfFirst { it.second == defaultColor }
-                        if (schedule?.color == null && colorSpinner.selectedItemPosition == 0 && colorIndex >= 0) { colorSpinner.setSelection(colorIndex + 1) }
-                    }
-                }
-            }
-            override fun onNothingSelected(parent: AdapterView<*>?) = Unit
-        }
-
-        var aiRecommendedDate: LocalDate? = null
-        var aiRecommendedMinutes: Int? = null
-
-        nlpButton.setOnClickListener {
-            val rawText = nlpInput.text.toString().trim()
-            if (rawText.isBlank()) {
-                nlpInput.error = "문장을 먼저 입력해 주세요."
-                return@setOnClickListener
-            }
-
-            lifecycleScope.launch(Dispatchers.IO) {
-                try {
-                    val response = recommenderService.nlpAnalyze(NlpRequest(text = rawText)).execute()
-                    if (response.isSuccessful && response.body() != null) {
-                        val res = response.body()!!
-
-                        withContext(Dispatchers.Main) {
-                            titleInput.setText(res.parsedTitle)
-
-                            val matchedCatIdx = categories.indexOfFirst {
-                                it.name.contains(res.parsedCategory) || res.parsedCategory.contains(it.name)
-                            }
-                            if (matchedCatIdx >= 0) {
-                                categorySpinner.setSelection(matchedCatIdx + 1)
-                            }
-
-                            val targetDate = when (res.parsedDate) {
-                                "오늘" -> LocalDate.now()
-                                "내일" -> LocalDate.now().plusDays(1)
-                                "모레" -> LocalDate.now().plusDays(2)
-                                else -> LocalDate.now()
-                            }
-                            selectedDeadline = targetDate
-                            deadlineInput.setText(targetDate.format(deadlineFormatter))
-
-                            aiRecommendedDate = targetDate
-                            aiRecommendedMinutes = res.recommendedTimeSlot
-                        }
-                    }
-                } catch (e: Exception) {
-                    withContext(Dispatchers.Main) {
-                        Toast.makeText(this@MainActivity, "AI 서버 연동 실패: ${e.message}", Toast.LENGTH_SHORT).show()
-                    }
-                }
-            }
-        }
-
-        val neutralText = if (schedule != null) "DELETE" else "시간표에 즉시 자동 배치"
-
-        val alertDialog = AlertDialog.Builder(this)
-            .setTitle(if (schedule == null) "Add schedule" else "Edit schedule")
-            .setView(dialogView)
-            .setNegativeButton("Cancel", null)
-            .setNeutralButton(neutralText, null)
-            .setPositiveButton("Save (Inbox로 저장)") { dialog, _ ->
-                val title = titleInput.text.toString().trim()
-                if (title.isBlank()) {
-                    titleInput.error = "Required"
-                    return@setPositiveButton
-                }
-                val deadline = selectedDeadline?.toEpochDay()
-                val selectedCategory = categorySpinner.selectedItemPosition.takeIf { it > 0 }?.let { categories[it - 1] }
-                val repeatType = when (repeatModeSpinner.selectedItemPosition) { 1 -> RepeatType.NONE 2 -> RepeatType.WEEKLY 3 -> RepeatType.DAILY else -> null }
-                val durationMinutes = ((hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value)).takeIf { it > 0 }
-                val entity = ScheduleEntity(
-                    id = schedule?.id ?: 0, title = title, categoryId = selectedCategory?.id,
-                    color = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
-                    isRepeat = repeatType?.let { it != RepeatType.NONE }, repeatType = repeatType, durationMinutes = durationMinutes, deadline = deadline,
-                    scheduledDate = schedule?.scheduledDate, dayOfWeek = schedule?.dayOfWeek, startTimeMinutes = schedule?.startTimeMinutes,
-                    status = schedule?.status ?: ScheduleStatus.INBOX
-                )
+        ScheduleEditorDialog(
+            context = this,
+            categories = categories,
+            colorOptions = colorOptions,
+            schedule = schedule,
+            onLocationSearch = ::showLocationSearch,
+            onSave = { entity ->
                 lifecycleScope.launch { repository.saveSchedule(entity) }
-                bottomSheetBehavior.state = BottomSheetBehavior.STATE_COLLAPSED
-                if (entity.status == ScheduleStatus.INBOX) animateIntoInbox()
-                dialog.dismiss()
+                inboxController.collapse()
+                if (entity.status == ScheduleStatus.INBOX) inboxController.animateIntoInbox()
             }
-            .create()
+        ).show()
+    }
 
-        alertDialog.show()
-
-        alertDialog.getButton(AlertDialog.BUTTON_NEUTRAL)?.apply {
-            if (schedule != null) {
-                setTextColor(Color.rgb(214, 48, 49))
-            }
-
-            setOnClickListener {
-                if (schedule == null) {
-                    val title = titleInput.text.toString().trim()
-
-                    if (title.isBlank() || aiRecommendedDate == null || aiRecommendedMinutes == null) {
-                        Toast.makeText(this@MainActivity, "AI 추천 정보가 없습니다. 분석을 먼저 완료해 주세요.", Toast.LENGTH_LONG).show()
-                        return@setOnClickListener
-                    }
-
-                    val selectedCategory = categorySpinner.selectedItemPosition.takeIf { it > 0 }?.let { categories[it - 1] }
-                    val duration = (hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value)
-
-                    val entity = ScheduleEntity(
-                        id = 0, title = title, categoryId = selectedCategory?.id,
-                        color = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
-                        isRepeat = repeatModeSpinner.selectedItemPosition > 1,
-                        repeatType = when (repeatModeSpinner.selectedItemPosition) { 2 -> RepeatType.WEEKLY 3 -> RepeatType.DAILY else -> RepeatType.NONE },
-                        durationMinutes = if (duration > 0) duration else 60, deadline = selectedDeadline?.toEpochDay(),
-                        status = ScheduleStatus.SCHEDULED,
-                        scheduledDate = aiRecommendedDate!!.toEpochDay(), dayOfWeek = aiRecommendedDate!!.dayOfWeek.value, startTimeMinutes = aiRecommendedMinutes!!
-                    )
-
-                    lifecycleScope.launch {
-                        repository.saveSchedule(entity)
-                        focusDate(aiRecommendedDate!!)
-                    }
-                    alertDialog.dismiss()
-                } else {
-                    AlertDialog.Builder(this@MainActivity)
-                        .setTitle("Delete schedule?")
-                        .setMessage(schedule.title)
-                        .setNegativeButton("Cancel", null)
-                        .setPositiveButton("Delete") { _, _ ->
-                            lifecycleScope.launch {
-                                repository.deleteSchedule(schedule)
-                                alertDialog.dismiss()
-                            }
-                        }
-                        .show()
-                }
-            }
-        }
+    private fun showLocationSearch(query: String, onSelected: (KakaoPlace) -> Unit) {
+        locationSearchController.search(query, onSelected)
     }
 
     private fun showScheduleDetail(schedule: ScheduleEntity) {
-        val card = cardForm()
-        val header = LinearLayout(this).apply {
-            orientation = LinearLayout.HORIZONTAL
-            gravity = android.view.Gravity.CENTER_VERTICAL
-        }
-        var detailDone = schedule.status == ScheduleStatus.DONE
-        val titleText = TextView(this).apply {
-            text = schedule.title
-            textSize = 18f
-            setTypeface(typeface, Typeface.BOLD)
-            setTextColor(Color.rgb(24, 32, 42))
-            layoutParams = LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
-        }
-        val doneButton = iconButton(R.drawable.ic_check_24, detailDone)
-        val deleteButton = iconButton(R.drawable.ic_trash_24)
-        val inboxButton = iconButton(R.drawable.ic_inbox_24)
-        header.addView(titleText)
-        header.addView(doneButton)
-        header.addView(deleteButton)
-        header.addView(inboxButton)
-        card.addView(header)
-        card.addView(detailLine("Category", categoryName(schedule.categoryId)))
-        card.addView(detailLine("Date", schedule.scheduledDate?.let { dateFromEpochDay(it).format(dateFormatter) } ?: "Inbox"))
-        card.addView(detailLine("Time", schedule.startTimeMinutes?.let { "${minutesToText(it)} - ${minutesToText(it + durationOrDefault(schedule))}" } ?: "Unassigned"))
-        card.addView(detailLine("Duration", schedule.durationMinutes?.let { "$it minutes" } ?: "Unset"))
-        card.addView(detailLine("Repeat", schedule.repeatType?.name ?: "Unset"))
-        card.addView(detailLine("Deadline", schedule.deadline?.let { dateFromEpochDay(it).format(dateFormatter) } ?: "None"))
-
-        val dialog = AlertDialog.Builder(this)
-            .setView(card)
-            .setNegativeButton("Close", null)
-            .setPositiveButton("Edit") { _, _ -> showScheduleEditor(schedule) }
-            .create()
-        doneButton.setOnClickListener {
-            detailDone = !detailDone
-            lifecycleScope.launch { repository.markDone(schedule, detailDone) }
-            doneButton.isSelected = detailDone
-            doneButton.backgroundTintList = android.content.res.ColorStateList.valueOf(
-                if (detailDone) Color.rgb(34, 108, 224) else Color.rgb(238, 241, 245)
-            )
-            doneButton.iconTint = android.content.res.ColorStateList.valueOf(
-                if (detailDone) Color.WHITE else Color.rgb(102, 112, 133)
-            )
-            card.alpha = if (detailDone) 0.72f else 1f
-        }
-        inboxButton.setOnClickListener {
-            lifecycleScope.launch { repository.moveToInbox(schedule) }
-            animateIntoInbox()
-            dialog.dismiss()
-        }
-        deleteButton.setOnClickListener {
-            AlertDialog.Builder(this)
-                .setTitle("Delete schedule?")
-                .setMessage(schedule.title)
-                .setNegativeButton("Cancel", null)
-                .setPositiveButton("Delete") { _, _ ->
-                    lifecycleScope.launch { repository.deleteSchedule(schedule) }
-                    dialog.dismiss()
-                }
-                .show()
-        }
-        dialog.setOnShowListener {
-            dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-        }
-        dialog.show()
+        ScheduleDetailDialog(
+            context = this,
+            schedule = schedule,
+            categoryName = categoryName(schedule.categoryId),
+            onDoneChanged = { done -> lifecycleScope.launch { repository.markDone(schedule, done) } },
+            onMoveToInbox = {
+                lifecycleScope.launch { repository.moveToInbox(schedule) }
+                inboxController.animateIntoInbox()
+            },
+            onDelete = { lifecycleScope.launch { repository.deleteSchedule(schedule) } },
+            onEdit = { showScheduleEditor(schedule) }
+        ).show()
     }
 
     private fun showCategoryManager() {
-        val list = RecyclerView(this).apply {
-            layoutManager = LinearLayoutManager(this@MainActivity)
-            adapter = CategoryAdapter(categories) { showCategoryEditor(it) }
-            setPadding(dp(16), dp(8), dp(16), dp(8))
-        }
-        val container = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            background = cellBackground(Color.WHITE, Color.TRANSPARENT, 14)
-            addView(list, LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(360)))
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Categories")
-            .setView(container)
-            .setNegativeButton("Close", null)
-            .setPositiveButton("+") { _, _ -> showCategoryEditor(null) }
-            .show()
+        CategoryManagerDialog(
+            context = this,
+            categories = categories,
+            onCategorySelected = { showCategoryEditor(it) },
+            onAddCategory = { showCategoryEditor(null) }
+        ).show()
     }
 
     private fun showCategoryEditor(category: CategoryEntity?) {
-        val form = cardForm()
-        val nameInput = EditText(this).apply {
-            hint = "Name"
-            setText(category?.name.orEmpty())
-            setSingleLine(true)
-        }
-        val colorSpinner = Spinner(this).apply {
-            adapter = simpleAdapter(listOf("Unset") + colorOptions.map { it.first })
-            setSelection(colorOptions.indexOfFirst { it.second == category?.defaultColor }.takeIf { it >= 0 }?.plus(1) ?: 0)
-        }
-        val hourPicker = NumberPicker(this).apply {
-            minValue = 0
-            maxValue = 8
-            value = (category?.defaultDurationMinutes ?: 0) / 60
-            wrapSelectorWheel = false
-        }
-        val minuteValues = arrayOf("00", "15", "30", "45")
-        val minutePicker = NumberPicker(this).apply {
-            minValue = 0
-            maxValue = minuteValues.lastIndex
-            displayedValues = minuteValues
-            value = ((category?.defaultDurationMinutes ?: 0) % 60) / 15
-            wrapSelectorWheel = false
-        }
-        val repeatSpinner = Spinner(this).apply {
-            adapter = simpleAdapter(listOf("Unset", "One-time", "Daily", "Weekly"))
-            setSelection(
-                when (category?.defaultRepeatType) {
-                    null -> 0
-                    RepeatType.NONE -> 1
-                    RepeatType.DAILY -> 2
-                    RepeatType.WEEKLY -> 3
-                }
-            )
-        }
-
-        form.addView(label("Name"))
-        form.addView(nameInput)
-        form.addView(label("Default color"))
-        form.addView(colorSpinner)
-        form.addView(label("Default duration"))
-        form.addView(
-            LinearLayout(this).apply {
-                orientation = LinearLayout.HORIZONTAL
-                addView(hourPicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-                addView(minutePicker, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f))
-            }
-        )
-        form.addView(label("Default repeat"))
-        form.addView(repeatSpinner)
-
-        AlertDialog.Builder(this)
-            .setTitle(if (category == null) "Add category" else "Edit category")
-            .setView(form)
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save", null)
-            .create()
-            .also { dialog ->
-                dialog.setOnShowListener {
-                    dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-                    dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                        val name = nameInput.text.toString().trim()
-                        if (name.isBlank()) {
-                            nameInput.error = "Required"
-                            return@setOnClickListener
-                        }
-                        lifecycleScope.launch {
-                            repository.saveCategory(
-                                CategoryEntity(
-                                    id = category?.id ?: 0,
-                                    name = name,
-                                    defaultColor = colorSpinner.selectedItemPosition.takeIf { it > 0 }?.let { colorOptions[it - 1].second },
-                                    defaultDurationMinutes = ((hourPicker.value * 60) + minuteIndexToMinutes(minutePicker.value)).takeIf { it > 0 },
-                                    defaultRepeatType = when (repeatSpinner.selectedItemPosition) {
-                                        1 -> RepeatType.NONE
-                                        2 -> RepeatType.DAILY
-                                        3 -> RepeatType.WEEKLY
-                                        else -> null
-                                    }
-                                )
-                            )
-                        }
-                        dialog.dismiss()
-                    }
-                }
-            }
-            .show()
-    }
-
-    private fun animateIntoInbox() {
-        binding.inboxRecycler.scaleX = 0.96f
-        binding.inboxRecycler.scaleY = 0.96f
-        binding.inboxRecycler.alpha = 0.55f
-        binding.inboxRecycler.animate().scaleX(1f).scaleY(1f).alpha(1f).setDuration(220).start()
-    }
-
-    private fun simpleAdapter(values: List<String>): ArrayAdapter<String> {
-        return ArrayAdapter(this, android.R.layout.simple_spinner_item, values).also {
-            it.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item)
-        }
-    }
-
-    private fun cardForm(): LinearLayout = LinearLayout(this).apply {
-        orientation = LinearLayout.VERTICAL
-        setPadding(dp(20), dp(12), dp(20), dp(12))
-        background = cellBackground(Color.WHITE, Color.TRANSPARENT, 14)
-    }
-
-    private fun label(text: String): TextView = TextView(this).apply {
-        this.text = text
-        setPadding(0, dp(12), 0, dp(2))
-        setTextColor(Color.rgb(102, 112, 133))
-        textSize = 12f
-    }
-
-    private fun detailLine(label: String, value: String): TextView = TextView(this).apply {
-        text = "$label: $value"
-        setPadding(0, dp(8), 0, 0)
-        setTextColor(Color.rgb(102, 112, 133))
-        textSize = 14f
-    }
-
-    private fun iconButton(iconRes: Int, selected: Boolean = false): MaterialButton {
-        return MaterialButton(this).apply {
-            text = ""
-            icon = getDrawable(iconRes)
-            iconGravity = MaterialButton.ICON_GRAVITY_TEXT_START
-            iconPadding = 0
-            insetTop = 0
-            insetBottom = 0
-            minWidth = dp(42)
-            minimumWidth = dp(42)
-            width = dp(42)
-            height = dp(42)
-            layoutParams = LinearLayout.LayoutParams(dp(42), dp(42)).apply {
-                marginStart = dp(6)
-            }
-            cornerRadius = dp(8)
-            backgroundTintList = android.content.res.ColorStateList.valueOf(
-                if (selected) Color.rgb(34, 108, 224) else Color.rgb(238, 241, 245)
-            )
-            iconTint = android.content.res.ColorStateList.valueOf(
-                if (selected) Color.WHITE else Color.rgb(102, 112, 133)
-            )
-        }
+        CategoryEditorDialog(
+            context = this,
+            category = category,
+            colorOptions = colorOptions,
+            onSave = { entity -> lifecycleScope.launch { repository.saveCategory(entity) } }
+        ).show()
     }
 
     private fun categoryName(categoryId: Long?): String {
         return categories.firstOrNull { it.id == categoryId }?.name ?: "No category"
     }
 
-    private fun minutesToText(minutes: Int): String = "%02d:%02d".format(minutes / 60, minutes % 60)
-
-    private fun dateForDay(day: Int): LocalDate = selectedWeekStart.plusDays((day - 1).toLong())
-
-    private fun dateFromEpochDay(epochDay: Long): LocalDate = LocalDate.ofEpochDay(epochDay)
-
-    private fun durationOrDefault(schedule: ScheduleEntity): Int = schedule.durationMinutes ?: 60
-
-    private fun minuteIndexToMinutes(index: Int): Int {
-        return when (index) {
-            1 -> 15
-            2 -> 30
-            3 -> 45
-            else -> 0
-        }
-    }
-
-    private fun scrollWrap(content: View): ScrollView = ScrollView(this).apply {
-        addView(content)
-    }
-
-    private fun showDeadlinePicker(current: LocalDate?, onSelected: (LocalDate?) -> Unit) {
-        val initial = current ?: LocalDate.now()
-        val picker = DatePicker(this).apply {
-            init(initial.year, initial.monthValue - 1, initial.dayOfMonth, null)
-        }
-        AlertDialog.Builder(this)
-            .setTitle("Deadline")
-            .setView(picker)
-            .setNegativeButton("Cancel", null)
-            .setNeutralButton("Clear") { _, _ -> onSelected(null) }
-            .setPositiveButton("Set") { _, _ ->
-                onSelected(LocalDate.of(picker.year, picker.month + 1, picker.dayOfMonth))
-            }
-            .show()
-    }
-
-    private fun cellBackground(fill: Int, stroke: Int, radiusDp: Int): GradientDrawable {
-        return GradientDrawable().apply {
-            color = android.content.res.ColorStateList.valueOf(fill)
-            cornerRadius = dp(radiusDp).toFloat()
-            if (stroke != Color.TRANSPARENT) setStroke(dp(1), stroke)
-        }
-    }
-
-    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
-
-    private inner class ScheduleAdapter(
-        private val onClick: (ScheduleEntity) -> Unit,
-        private val onLongClick: (ScheduleEntity, View) -> Boolean,
-        private val categoryName: (Long?) -> String
-    ) : RecyclerView.Adapter<ScheduleAdapter.ScheduleViewHolder>() {
-        private val items = mutableListOf<ScheduleEntity>()
-
-        fun submit(newItems: List<ScheduleEntity>) {
-            items.clear()
-            items.addAll(newItems)
-            notifyDataSetChanged()
-        }
-
-        fun getScheduleAt(position: Int): ScheduleEntity? {
-            return items.getOrNull(position)
-        }
-
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ScheduleViewHolder {
-            val binding = ItemScheduleBinding.inflate(LayoutInflater.from(parent.context), parent, false)
-            return ScheduleViewHolder(binding, onClick, onLongClick, categoryName)
-        }
-
-        override fun onBindViewHolder(holder: ScheduleViewHolder, position: Int) {
-            holder.bind(items[position])
-        }
-
-        override fun getItemCount(): Int = items.size
-
-        private inner class ScheduleViewHolder(
-            private val binding: ItemScheduleBinding,
-            private val onClick: (ScheduleEntity) -> Unit,
-            private val onLongClick: (ScheduleEntity, View) -> Boolean,
-            private val categoryName: (Long?) -> String
-        ) : RecyclerView.ViewHolder(binding.root) {
-            fun bind(schedule: ScheduleEntity) {
-                binding.titleText.text = schedule.title
-                binding.metaText.text = "${schedule.durationMinutes?.let { "$it min" } ?: "No duration"} · ${categoryName(schedule.categoryId)}"
-                binding.colorStrip.background = GradientDrawable().apply {
-                    color = android.content.res.ColorStateList.valueOf(schedule.color ?: Color.rgb(160, 166, 178))
-                    cornerRadius = binding.root.resources.displayMetrics.density * 3
-                }
-                binding.root.setOnClickListener { onClick(schedule) }
-                binding.root.setOnLongClickListener { onLongClick(schedule, binding.root) }
-            }
-        }
-    }
-
-    private class CategoryAdapter(
-        private val items: List<CategoryEntity>,
-        private val onClick: (CategoryEntity) -> Unit
-    ) : RecyclerView.Adapter<CategoryAdapter.CategoryViewHolder>() {
-        override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): CategoryViewHolder {
-            val textView = TextView(parent.context).apply {
-                setPadding(18, 16, 18, 16)
-                textSize = 16f
-                setTextColor(Color.rgb(24, 32, 42))
-            }
-            return CategoryViewHolder(textView, onClick)
-        }
-
-        override fun onBindViewHolder(holder: CategoryViewHolder, position: Int) {
-            holder.bind(items[position])
-        }
-
-        override fun getItemCount(): Int = items.size
-
-        private class CategoryViewHolder(
-            private val textView: TextView,
-            private val onClick: (CategoryEntity) -> Unit
-        ) : RecyclerView.ViewHolder(textView) {
-            fun bind(category: CategoryEntity) {
-                val duration = category.defaultDurationMinutes?.let { "$it min" } ?: "Unset duration"
-                val repeat = category.defaultRepeatType?.name ?: "Unset repeat"
-                textView.text = "${category.name}\n$duration · $repeat"
-                textView.setOnClickListener { onClick(category) }
-            }
-        }
-    }
-
-    companion object {
-        private fun weekStart(date: LocalDate): LocalDate {
-            return date.with(TemporalAdjusters.previousOrSame(java.time.DayOfWeek.MONDAY))
-        }
-    }
 }
