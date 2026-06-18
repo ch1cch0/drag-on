@@ -65,6 +65,7 @@ class GoogleCalendarSyncController(
     }
 
     fun syncAfterSave(schedule: ScheduleEntity) {
+        syncEnabled = preferences.getBoolean(KEY_SYNC_ENABLED, false)
         if (!syncEnabled || !schedule.canSyncToGoogle()) return
         withAccessToken { token ->
             lifecycleScope.launch {
@@ -75,6 +76,7 @@ class GoogleCalendarSyncController(
     }
 
     fun syncAfterDelete(schedule: ScheduleEntity) {
+        syncEnabled = preferences.getBoolean(KEY_SYNC_ENABLED, false)
         if (!syncEnabled) return
         val eventId = schedule.googleEventId ?: return
         withAccessToken { token ->

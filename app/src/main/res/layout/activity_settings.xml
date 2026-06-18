@@ -1,0 +1,63 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:background="@color/app_background"
+    android:orientation="vertical"
+    android:paddingStart="24dp"
+    android:paddingTop="28dp"
+    android:paddingEnd="24dp">
+
+    <com.google.android.material.button.MaterialButton
+        android:id="@+id/backButton"
+        style="?attr/borderlessButtonStyle"
+        android:layout_width="48dp"
+        android:layout_height="48dp"
+        android:backgroundTint="@android:color/transparent"
+        android:contentDescription="Back"
+        android:text=""
+        app:icon="@drawable/ic_arrow_back_24"
+        app:iconGravity="textStart"
+        app:iconPadding="0dp"
+        app:iconSize="32dp"
+        app:iconTint="@color/text_primary" />
+
+    <ImageView
+        android:id="@+id/profileImage"
+        android:layout_width="176dp"
+        android:layout_height="176dp"
+        android:layout_gravity="center_horizontal"
+        android:layout_marginTop="36dp"
+        android:contentDescription="Google account profile"
+        android:src="@drawable/ic_account_circle_96" />
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="34dp"
+        android:layout_marginTop="52dp"
+        android:layout_marginEnd="18dp"
+        android:orientation="vertical">
+
+        <TextView
+            android:id="@+id/googleAccountItem"
+            style="@style/SettingsMenuItem"
+            android:text="Google account" />
+
+        <TextView
+            android:id="@+id/googleCalendarSyncItem"
+            style="@style/SettingsMenuItem"
+            android:text="Google Calendar sync" />
+
+        <TextView
+            android:id="@+id/downloadBackupItem"
+            style="@style/SettingsMenuItem"
+            android:text="Download backup" />
+
+        <TextView
+            android:id="@+id/restoreBackupItem"
+            style="@style/SettingsMenuItem"
+            android:text="Restore backup" />
+    </LinearLayout>
+</LinearLayout>

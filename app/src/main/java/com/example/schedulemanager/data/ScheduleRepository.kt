@@ -39,6 +39,10 @@ class ScheduleRepository(
         }
     }
 
+    suspend fun importSchedule(schedule: ScheduleEntity): Long {
+        return scheduleDao.insert(schedule)
+    }
+
     suspend fun deleteSchedule(schedule: ScheduleEntity) {
         scheduleDao.delete(schedule)
     }
@@ -50,6 +54,10 @@ class ScheduleRepository(
             categoryDao.update(category)
             category.id
         }
+    }
+
+    suspend fun importCategory(category: CategoryEntity): Long {
+        return categoryDao.insert(category)
     }
 
     suspend fun moveToInbox(schedule: ScheduleEntity) {
