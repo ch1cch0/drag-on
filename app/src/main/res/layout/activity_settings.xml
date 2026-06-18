@@ -140,10 +140,10 @@
                 android:contentDescription="Sync all"
                 android:text=""
                 android:visibility="gone"
-                app:icon="@drawable/ic_calendar_sync_24"
+                app:icon="@drawable/ic_refresh_24"
                 app:iconGravity="textStart"
                 app:iconPadding="0dp"
-                app:iconTint="@color/accent" />
+                app:iconTint="@color/text_secondary" />
 
             <com.google.android.material.switchmaterial.SwitchMaterial
                 android:id="@+id/syncSwitch"
