@@ -59,7 +59,13 @@ class GoogleCalendarRepository {
                 return connection.inputStream.bufferedReader().use { it.readText() }
             }
             val error = connection.errorStream?.bufferedReader()?.use { it.readText() }.orEmpty()
-            error("Google Calendar API failed: $code $error")
+            throw GoogleCalendarApiException(
+                statusCode = code,
+                responseBody = error,
+                requestMethod = method,
+                requestUrl = url.toString(),
+                requestBody = body
+            )
         } finally {
             connection.disconnect()
         }
@@ -69,3 +75,11 @@ class GoogleCalendarRepository {
         return java.net.URLEncoder.encode(value, Charsets.UTF_8.name()).replace("+", "%20")
     }
 }
+
+class GoogleCalendarApiException(
+    val statusCode: Int,
+    val responseBody: String,
+    val requestMethod: String,
+    val requestUrl: String,
+    val requestBody: String?
+) : IllegalStateException("Google Calendar API failed: $statusCode $responseBody")

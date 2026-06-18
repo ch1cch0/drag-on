@@ -7,6 +7,7 @@ import org.json.JSONObject
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 object GoogleCalendarMapper {
     fun toEventJson(schedule: ScheduleEntity, zoneId: ZoneId = ZoneId.systemDefault()): JSONObject {
@@ -23,13 +24,13 @@ object GoogleCalendarMapper {
             put(
                 "start",
                 JSONObject()
-                    .put("dateTime", start.toOffsetDateTime().toString())
+                    .put("dateTime", start.toOffsetDateTime().format(GOOGLE_DATE_TIME_FORMATTER))
                     .put("timeZone", zoneId.id)
             )
             put(
                 "end",
                 JSONObject()
-                    .put("dateTime", end.toOffsetDateTime().toString())
+                    .put("dateTime", end.toOffsetDateTime().format(GOOGLE_DATE_TIME_FORMATTER))
                     .put("timeZone", zoneId.id)
             )
             recurrenceRule(schedule.repeatType)?.let {
@@ -56,4 +57,5 @@ object GoogleCalendarMapper {
     }
 
     private const val DEFAULT_DURATION_MINUTES = 60
+    private val GOOGLE_DATE_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX")
 }

@@ -36,12 +36,14 @@ class MainSurfaceController(
         binding.scheduleSurface.animate().alpha(0.78f).setDuration(80).withEndAction {
             if (calendarMode) {
                 binding.titleText.visibility = View.GONE
+                binding.googleCalendarButton.visibility = View.GONE
                 binding.weekScroll.visibility = View.GONE
                 binding.monthFragmentContainer.visibility = View.VISIBLE
                 inboxController.setHidden(true)
                 onRenderMonthlyCalendar()
             } else {
                 binding.titleText.visibility = View.VISIBLE
+                binding.googleCalendarButton.visibility = View.VISIBLE
                 binding.monthFragmentContainer.visibility = View.GONE
                 inboxController.setHidden(false)
                 binding.weekScroll.visibility = View.VISIBLE

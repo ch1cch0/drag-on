@@ -40,8 +40,8 @@ class GoogleCalendarMapperTest {
 
         assertEquals("Final exam", event.getString("summary"))
         assertEquals("Room 101", event.getString("location"))
-        assertEquals("2026-06-16T09:15+09:00", event.getJSONObject("start").getString("dateTime"))
-        assertEquals("2026-06-16T11:00+09:00", event.getJSONObject("end").getString("dateTime"))
+        assertEquals("2026-06-16T09:15:00+09:00", event.getJSONObject("start").getString("dateTime"))
+        assertEquals("2026-06-16T11:00:00+09:00", event.getJSONObject("end").getString("dateTime"))
         assertEquals("Asia/Seoul", event.getJSONObject("start").getString("timeZone"))
     }
 
@@ -52,8 +52,8 @@ class GoogleCalendarMapperTest {
             zoneId
         )
 
-        assertEquals("2026-06-16T09:15+09:00", event.getJSONObject("start").getString("dateTime"))
-        assertEquals("2026-06-16T10:15+09:00", event.getJSONObject("end").getString("dateTime"))
+        assertEquals("2026-06-16T09:15:00+09:00", event.getJSONObject("start").getString("dateTime"))
+        assertEquals("2026-06-16T10:15:00+09:00", event.getJSONObject("end").getString("dateTime"))
     }
 
     @Test
@@ -63,8 +63,8 @@ class GoogleCalendarMapperTest {
             zoneId
         )
 
-        assertEquals("2026-06-16T09:15+09:00", event.getJSONObject("start").getString("dateTime"))
-        assertEquals("2026-06-16T10:15+09:00", event.getJSONObject("end").getString("dateTime"))
+        assertEquals("2026-06-16T09:15:00+09:00", event.getJSONObject("start").getString("dateTime"))
+        assertEquals("2026-06-16T10:15:00+09:00", event.getJSONObject("end").getString("dateTime"))
     }
 
     private fun schedule(

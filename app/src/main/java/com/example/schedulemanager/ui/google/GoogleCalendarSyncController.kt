@@ -3,6 +3,7 @@ package com.example.schedulemanager.ui.google
 import android.app.AlertDialog
 import android.content.Intent
 import android.content.Context
+import android.util.Log
 import android.widget.Toast
 import androidx.activity.result.ActivityResult
 import androidx.activity.result.ActivityResultLauncher
@@ -13,6 +14,7 @@ import com.example.schedulemanager.BuildConfig
 import com.example.schedulemanager.data.ScheduleEntity
 import com.example.schedulemanager.data.ScheduleRepository
 import com.example.schedulemanager.data.ScheduleStatus
+import com.example.schedulemanager.external.google.GoogleCalendarApiException
 import com.example.schedulemanager.external.google.GoogleCalendarRepository
 import com.google.android.gms.auth.api.identity.AuthorizationRequest
 import com.google.android.gms.auth.api.identity.AuthorizationResult
@@ -67,7 +69,7 @@ class GoogleCalendarSyncController(
         withAccessToken { token ->
             lifecycleScope.launch {
                 runCatching { syncSchedule(token, schedule) }
-                    .onFailure { showSyncFailureToast() }
+                    .onFailure { showSyncFailureToast(it) }
             }
         }
     }
@@ -78,7 +80,10 @@ class GoogleCalendarSyncController(
         withAccessToken { token ->
             lifecycleScope.launch {
                 runCatching { calendarRepository.deleteEvent(token, eventId) }
-                    .onFailure { Toast.makeText(activity, "Google Calendar delete failed.", Toast.LENGTH_SHORT).show() }
+                    .onFailure {
+                        logSyncFailure(it)
+                        Toast.makeText(activity, "Google Calendar delete failed.", Toast.LENGTH_SHORT).show()
+                    }
             }
         }
     }
@@ -116,7 +121,12 @@ class GoogleCalendarSyncController(
                 var failed = 0
                 for (schedule in targets) {
                     val result = runCatching { syncSchedule(token, schedule) }
-                    if (result.isSuccess) success++ else failed++
+                    if (result.isSuccess) {
+                        success++
+                    } else {
+                        failed++
+                        result.exceptionOrNull()?.let(::logSyncFailure)
+                    }
                 }
                 val message = if (failed == 0) {
                     "Google Calendar synced $success schedules."
@@ -173,8 +183,27 @@ class GoogleCalendarSyncController(
         Toast.makeText(activity, "Google authorization failed.", Toast.LENGTH_SHORT).show()
     }
 
-    private fun showSyncFailureToast() {
-        Toast.makeText(activity, "Google Calendar sync failed.", Toast.LENGTH_SHORT).show()
+    private fun showSyncFailureToast(error: Throwable) {
+        logSyncFailure(error)
+        val message = if (error is GoogleCalendarApiException) {
+            "Google Calendar sync failed (${error.statusCode})."
+        } else {
+            "Google Calendar sync failed."
+        }
+        Toast.makeText(activity, message, Toast.LENGTH_SHORT).show()
+    }
+
+    private fun logSyncFailure(error: Throwable) {
+        if (error is GoogleCalendarApiException) {
+            Log.e(
+                TAG,
+                "Calendar API ${error.statusCode} ${error.requestMethod} ${error.requestUrl}\n" +
+                    "response=${error.responseBody}\nrequest=${error.requestBody}",
+                error
+            )
+        } else {
+            Log.e(TAG, "Google Calendar sync failed.", error)
+        }
     }
 
     private fun ScheduleEntity.canSyncToGoogle(): Boolean {
@@ -184,5 +213,6 @@ class GoogleCalendarSyncController(
     companion object {
         private const val CALENDAR_EVENTS_SCOPE = "https://www.googleapis.com/auth/calendar.events"
         private const val KEY_SYNC_ENABLED = "sync_enabled"
+        private const val TAG = "GoogleCalendarSync"
     }
 }
