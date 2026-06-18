@@ -8,6 +8,7 @@ import android.view.MotionEvent
 import android.view.View
 import android.widget.Toast
 import androidx.activity.result.ActivityResultLauncher
+import androidx.activity.result.IntentSenderRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GestureDetectorCompat
@@ -23,8 +24,10 @@ import com.example.schedulemanager.external.Holiday
 import com.example.schedulemanager.external.HolidayRepository
 import com.example.schedulemanager.external.KakaoPlace
 import com.example.schedulemanager.external.LocationSearchRepository
+import com.example.schedulemanager.external.google.GoogleCalendarRepository
 import com.example.schedulemanager.ui.category.CategoryEditorDialog
 import com.example.schedulemanager.ui.category.CategoryManagerDialog
+import com.example.schedulemanager.ui.google.GoogleCalendarSyncController
 import com.example.schedulemanager.ui.inbox.InboxBottomSheetController
 import com.example.schedulemanager.ui.inbox.InboxScheduleAdapter
 import com.example.schedulemanager.ui.location.LocationSearchController
@@ -51,13 +54,16 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var scaleDetector: android.view.ScaleGestureDetector
     private lateinit var locationClient: FusedLocationProviderClient
     private lateinit var locationPermissionLauncher: ActivityResultLauncher<Array<String>>
+    private lateinit var googleAuthorizationLauncher: ActivityResultLauncher<IntentSenderRequest>
     private lateinit var monthCalendarFragment: MonthCalendarFragment
     private lateinit var weeklyTimetable: WeeklyTimetableController
     private lateinit var mainSurfaceController: MainSurfaceController
     private lateinit var locationSearchController: LocationSearchController
+    private lateinit var googleCalendarSyncController: GoogleCalendarSyncController
 
     private lateinit var holidayRepository: HolidayRepository
     private lateinit var locationSearchRepository: LocationSearchRepository
+    private lateinit var googleCalendarRepository: GoogleCalendarRepository
 
     private var schedules: List<ScheduleEntity> = emptyList()
     private var categories: List<CategoryEntity> = emptyList()
@@ -87,6 +93,9 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         locationPermissionLauncher = registerForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) { permissions ->
             locationSearchController.onPermissionResult(permissions)
         }
+        googleAuthorizationLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
+            googleCalendarSyncController.onAuthorizationResult(result)
+        }
         initExternalRepositories()
 
         inboxAdapter = InboxScheduleAdapter(
@@ -99,6 +108,9 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             onAddSchedule = { showScheduleEditor(null) },
             onManageCategories = { showCategoryManager() }
         )
+        binding.googleCalendarButton.setOnClickListener {
+            googleCalendarSyncController.showSyncDialog(schedules)
+        }
         weeklyTimetable = WeeklyTimetableController(
             binding = binding,
             titleFormatter = shortDateFormatter,
@@ -139,12 +151,20 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private fun initExternalRepositories() {
         holidayRepository = HolidayRepository(BuildConfig.GO_DATA_API_KEY)
         locationSearchRepository = LocationSearchRepository(BuildConfig.KAKAO_REST_API_KEY)
+        googleCalendarRepository = GoogleCalendarRepository()
         locationSearchController = LocationSearchController(
             activity = this,
             lifecycleScope = lifecycleScope,
             locationClient = locationClient,
             locationSearchRepository = locationSearchRepository,
             permissionLauncher = locationPermissionLauncher
+        )
+        googleCalendarSyncController = GoogleCalendarSyncController(
+            activity = this,
+            lifecycleScope = lifecycleScope,
+            repository = repository,
+            calendarRepository = googleCalendarRepository,
+            authorizationLauncher = googleAuthorizationLauncher
         )
     }
 
@@ -271,15 +291,15 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
 
     private fun placeSchedule(id: Long, date: LocalDate, day: Int, slotStart: Int) {
         val schedule = schedules.firstOrNull { it.id == id } ?: return
+        val placedSchedule = schedule.copy(
+            status = ScheduleStatus.SCHEDULED,
+            scheduledDate = date.toEpochDay(),
+            dayOfWeek = day,
+            startTimeMinutes = slotStart
+        )
         lifecycleScope.launch {
-            repository.saveSchedule(
-                schedule.copy(
-                    status = ScheduleStatus.SCHEDULED,
-                    scheduledDate = date.toEpochDay(),
-                    dayOfWeek = day,
-                    startTimeMinutes = slotStart
-                )
-            )
+            repository.saveSchedule(placedSchedule)
+            googleCalendarSyncController.syncAfterSave(placedSchedule)
         }
         focusDate(date)
     }
@@ -296,7 +316,11 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             schedule = schedule,
             onLocationSearch = ::showLocationSearch,
             onSave = { entity ->
-                lifecycleScope.launch { repository.saveSchedule(entity) }
+                lifecycleScope.launch {
+                    val id = repository.saveSchedule(entity)
+                    val savedEntity = entity.copy(id = id)
+                    googleCalendarSyncController.syncAfterSave(savedEntity)
+                }
                 inboxController.collapse()
                 if (entity.status == ScheduleStatus.INBOX) inboxController.animateIntoInbox()
             }
@@ -312,12 +336,26 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             context = this,
             schedule = schedule,
             categoryName = categoryName(schedule.categoryId),
-            onDoneChanged = { done -> lifecycleScope.launch { repository.markDone(schedule, done) } },
+            onDoneChanged = { done ->
+                lifecycleScope.launch {
+                    val updated = schedule.copy(status = if (done) ScheduleStatus.DONE else ScheduleStatus.SCHEDULED)
+                    repository.saveSchedule(updated)
+                    googleCalendarSyncController.syncAfterSave(updated)
+                }
+            },
             onMoveToInbox = {
-                lifecycleScope.launch { repository.moveToInbox(schedule) }
+                lifecycleScope.launch {
+                    googleCalendarSyncController.syncAfterDelete(schedule)
+                    repository.moveToInbox(schedule)
+                }
                 inboxController.animateIntoInbox()
             },
-            onDelete = { lifecycleScope.launch { repository.deleteSchedule(schedule) } },
+            onDelete = {
+                lifecycleScope.launch {
+                    googleCalendarSyncController.syncAfterDelete(schedule)
+                    repository.deleteSchedule(schedule)
+                }
+            },
             onEdit = { showScheduleEditor(schedule) }
         ).show()
     }

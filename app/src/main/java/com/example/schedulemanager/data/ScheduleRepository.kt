@@ -58,7 +58,10 @@ class ScheduleRepository(
                 status = ScheduleStatus.INBOX,
                 scheduledDate = null,
                 dayOfWeek = null,
-                startTimeMinutes = null
+                startTimeMinutes = null,
+                googleCalendarId = null,
+                googleEventId = null,
+                googleSyncedAt = null
             )
         )
     }
