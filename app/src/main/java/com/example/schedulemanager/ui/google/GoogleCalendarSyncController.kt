@@ -96,10 +96,15 @@ class GoogleCalendarSyncController(
             onChanged(false)
             return
         }
+        syncEnabled = true
+        preferences.edit().putBoolean(KEY_SYNC_ENABLED, true).apply()
+        onChanged(true)
         syncAll(schedules) { success ->
-            syncEnabled = success
-            preferences.edit().putBoolean(KEY_SYNC_ENABLED, success).apply()
-            onChanged(success)
+            if (!success) {
+                syncEnabled = false
+                preferences.edit().putBoolean(KEY_SYNC_ENABLED, false).apply()
+                onChanged(false)
+            }
         }
     }
 

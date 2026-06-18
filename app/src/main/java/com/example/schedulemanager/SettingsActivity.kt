@@ -186,8 +186,11 @@ class SettingsActivity : AppCompatActivity() {
         binding.syncSubtitleText.text = "scheduled items : $scheduledCount"
         binding.refreshSyncButton.visibility = if (enabled) android.view.View.VISIBLE else android.view.View.GONE
         suppressSyncSwitchChange = true
-        binding.syncSwitch.isChecked = enabled
-        suppressSyncSwitchChange = false
+        try {
+            binding.syncSwitch.isChecked = enabled
+        } finally {
+            suppressSyncSwitchChange = false
+        }
     }
 
     private fun startBackupDownload() {
