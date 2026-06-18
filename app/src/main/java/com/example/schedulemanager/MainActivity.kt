@@ -1,7 +1,9 @@
 package com.example.schedulemanager
 
+import android.app.AlertDialog
 import android.content.ClipData
 import android.graphics.Color
+import android.net.Uri
 import android.os.Bundle
 import android.view.GestureDetector
 import android.view.MotionEvent
@@ -41,6 +43,9 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import org.json.JSONArray
+import org.json.JSONObject
+import java.time.Instant
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import kotlin.math.abs
@@ -55,6 +60,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var locationClient: FusedLocationProviderClient
     private lateinit var locationPermissionLauncher: ActivityResultLauncher<Array<String>>
     private lateinit var googleAuthorizationLauncher: ActivityResultLauncher<IntentSenderRequest>
+    private lateinit var backupFileLauncher: ActivityResultLauncher<String>
     private lateinit var monthCalendarFragment: MonthCalendarFragment
     private lateinit var weeklyTimetable: WeeklyTimetableController
     private lateinit var mainSurfaceController: MainSurfaceController
@@ -69,10 +75,12 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private var categories: List<CategoryEntity> = emptyList()
     private var displayedMonth: LocalDate = LocalDate.now().withDayOfMonth(1)
     private var cumulativeScale = 1f
+    private var pendingBackupJson: String? = null
 
     private var currentHolidays: List<Holiday> = emptyList()
 
     private val shortDateFormatter = DateTimeFormatter.ofPattern("M/d")
+    private val backupFileDateFormatter = DateTimeFormatter.ofPattern("yyyyMMdd")
 
     private val colorOptions = listOf(
         "Blue" to Color.rgb(34, 108, 224),
@@ -96,6 +104,13 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         googleAuthorizationLauncher = registerForActivityResult(ActivityResultContracts.StartIntentSenderForResult()) { result ->
             googleCalendarSyncController.onAuthorizationResult(result)
         }
+        backupFileLauncher = registerForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
+            if (uri != null) {
+                writeBackupToUri(uri)
+            } else {
+                pendingBackupJson = null
+            }
+        }
         initExternalRepositories()
 
         inboxAdapter = InboxScheduleAdapter(
@@ -108,8 +123,8 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             onAddSchedule = { showScheduleEditor(null) },
             onManageCategories = { showCategoryManager() }
         )
-        binding.googleCalendarButton.setOnClickListener {
-            googleCalendarSyncController.showSyncDialog(schedules)
+        binding.settingsButton.setOnClickListener {
+            showSettingsDialog()
         }
         weeklyTimetable = WeeklyTimetableController(
             binding = binding,
@@ -245,6 +260,82 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             mainSurfaceController.render()
         }.show()
     }
+
+    private fun showSettingsDialog() {
+        AlertDialog.Builder(this)
+            .setTitle("Settings")
+            .setItems(arrayOf("Google Calendar sync", "Download backup")) { _, which ->
+                when (which) {
+                    0 -> googleCalendarSyncController.showSyncDialog(schedules)
+                    1 -> startBackupDownload()
+                }
+            }
+            .show()
+    }
+
+    private fun startBackupDownload() {
+        pendingBackupJson = buildBackupJson()
+        val fileName = "schedule_backup_${LocalDate.now().format(backupFileDateFormatter)}.json"
+        backupFileLauncher.launch(fileName)
+    }
+
+    private fun writeBackupToUri(uri: Uri) {
+        val json = pendingBackupJson ?: return
+        val result = runCatching {
+            contentResolver.openOutputStream(uri)?.use { output ->
+                output.write(json.toByteArray(Charsets.UTF_8))
+            } ?: error("Could not open backup file.")
+        }
+        pendingBackupJson = null
+        if (result.isSuccess) {
+            Toast.makeText(this, "Backup downloaded.", Toast.LENGTH_SHORT).show()
+        } else {
+            Toast.makeText(this, "Backup download failed.", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    private fun buildBackupJson(): String {
+        return JSONObject()
+            .put("version", 1)
+            .put("exportedAt", Instant.now().toString())
+            .put("schedules", JSONArray().apply { schedules.forEach { put(it.toBackupJson()) } })
+            .put("categories", JSONArray().apply { categories.forEach { put(it.toBackupJson()) } })
+            .toString(2)
+    }
+
+    private fun ScheduleEntity.toBackupJson(): JSONObject {
+        return JSONObject()
+            .put("id", id)
+            .put("title", title)
+            .put("categoryId", jsonValue(categoryId))
+            .put("color", jsonValue(color))
+            .put("isRepeat", jsonValue(isRepeat))
+            .put("repeatType", jsonValue(repeatType?.name))
+            .put("durationMinutes", jsonValue(durationMinutes))
+            .put("deadline", jsonValue(deadline))
+            .put("locationName", jsonValue(locationName))
+            .put("locationAddress", jsonValue(locationAddress))
+            .put("locationLatitude", jsonValue(locationLatitude))
+            .put("locationLongitude", jsonValue(locationLongitude))
+            .put("googleCalendarId", jsonValue(googleCalendarId))
+            .put("googleEventId", jsonValue(googleEventId))
+            .put("googleSyncedAt", jsonValue(googleSyncedAt))
+            .put("scheduledDate", jsonValue(scheduledDate))
+            .put("dayOfWeek", jsonValue(dayOfWeek))
+            .put("startTimeMinutes", jsonValue(startTimeMinutes))
+            .put("status", status.name)
+    }
+
+    private fun CategoryEntity.toBackupJson(): JSONObject {
+        return JSONObject()
+            .put("id", id)
+            .put("name", name)
+            .put("defaultColor", jsonValue(defaultColor))
+            .put("defaultDurationMinutes", jsonValue(defaultDurationMinutes))
+            .put("defaultRepeatType", jsonValue(defaultRepeatType?.name))
+    }
+
+    private fun jsonValue(value: Any?): Any = value ?: JSONObject.NULL
 
     private fun focusDate(date: LocalDate) {
         if (date == weeklyTimetable.selectedDate && !mainSurfaceController.calendarMode) return
