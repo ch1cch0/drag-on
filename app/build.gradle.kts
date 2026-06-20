@@ -17,7 +17,7 @@ val localProperties = Properties().apply {
 
 android {
     namespace = "com.example.schedulemanager"
-    compileSdk = 36 // 표준 형식으로 간소화
+    compileSdk = 36
 
     defaultConfig {
         applicationId = "com.example.schedulemanager"

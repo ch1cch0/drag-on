@@ -71,7 +71,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     private lateinit var locationSearchController: LocationSearchController
     private lateinit var googleCalendarSyncController: GoogleCalendarSyncController
 
-    // ⭐️ AI 서비스 통신 객체
     private lateinit var aiApiService: AiApiService
 
     private lateinit var holidayRepository: HolidayRepository
@@ -113,7 +112,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             }
         initExternalRepositories()
 
-        // ⏱️ [타임아웃 10초 튕김 제거] 무조건 60초간 대기하게 만드는 강력한 통신 클라이언트 명시적 주입
         val okHttpClient = OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(60, TimeUnit.SECONDS)
@@ -135,7 +133,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         )
         inboxController = InboxBottomSheetController(binding, inboxAdapter)
 
-        // 💡 [스와이프 삭제 기능 연동] 인박스 리사이클러뷰 객체를 찾아 스와이프 콜백 연결
         val recyclerView = binding.inboxRecycler
         val swipeCallback = SwipeToDeleteCallback(inboxAdapter) { position ->
             val inboxSchedules = schedules.filter { it.status == ScheduleStatus.INBOX }
@@ -192,7 +189,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             }
         }
 
-        // ⭐️ 요술봉 아이콘 레이아웃 버튼 클릭 리스너 연결
         binding.magicWandButton.setOnClickListener {
             showMagicAssistantDialog()
         }
@@ -231,7 +227,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                 currentHolidays = emptyList()
                 weeklyTimetable.holidays = currentHolidays
                 mainSurfaceController.render()
-                // 🔍 디버깅용 로그 남기기 (키 오류 추적 목적)
                 android.util.Log.e("HOLIDAY_DEBUG", "공휴일 통신 실패 원인: ", result.exceptionOrNull())
                 Toast.makeText(
                     this@MainActivity,
