@@ -1,15 +1,19 @@
 package com.example.schedulemanager.ui.schedule
 
-import android.app.AlertDialog
+import android.app.Dialog
 import android.content.Context
+import android.graphics.Color
+import android.graphics.Typeface
 import android.view.View
 import android.view.ViewGroup
+import android.view.Window
 import android.widget.AdapterView
 import android.widget.DatePicker
 import android.widget.EditText
 import android.widget.LinearLayout
 import android.widget.NumberPicker
 import android.widget.Spinner
+import android.widget.TextView
 import com.example.schedulemanager.R
 import com.example.schedulemanager.data.CategoryEntity
 import com.example.schedulemanager.data.RepeatType
@@ -33,7 +37,48 @@ class ScheduleEditorDialog(
     private val formViews = DialogFormViews(context)
 
     fun show() {
-        val form = formViews.cardForm()
+        // 💡 1. 순수 Dialog 객체를 생성하여 기본 프레임 완전 제거
+        val dialog = Dialog(context).apply {
+            requestWindowFeature(Window.FEATURE_NO_TITLE)
+        }
+
+        // 전체 마진용 외곽 패딩 컨테이너
+        val container = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            val margin = formViews.dp(24)
+            setPadding(margin, margin, margin, margin)
+        }
+
+        // 💡 2. 실제 흰색 라운드 배경을 갖는 일체형 메인 카드뷰 레이아웃
+        val card = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding(formViews.dp(24), formViews.dp(24), formViews.dp(24), formViews.dp(24))
+            background = android.graphics.drawable.GradientDrawable().apply {
+                color = android.content.res.ColorStateList.valueOf(Color.WHITE)
+                cornerRadius = formViews.dp(16).toFloat()
+            }
+        }
+
+        // 💡 3. 타이틀 텍스트를 카드 내부 최상단 자식으로 배치
+        val dialogTitleText = TextView(context).apply {
+            text = if (schedule == null) "Add schedule" else "Edit schedule"
+            textSize = 20f
+            setTypeface(typeface, Typeface.BOLD)
+            setTextColor(Color.rgb(24, 32, 42))
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                bottomMargin = formViews.dp(16)
+            }
+        }
+        card.addView(dialogTitleText)
+
+        // 기존 폼 입력 내용들 생성
+        val form = LinearLayout(context).apply {
+            orientation = LinearLayout.VERTICAL
+        }
+
         val titleInput = EditText(context).apply {
             hint = "Title"
             setText(schedule?.title.orEmpty())
@@ -182,35 +227,82 @@ class ScheduleEditorDialog(
             override fun onNothingSelected(parent: AdapterView<*>?) = Unit
         }
 
-        val dialog = AlertDialog.Builder(context)
-            .setTitle(if (schedule == null) "Add schedule" else "Edit schedule")
-            .setView(formViews.scrollWrap(form))
-            .setNegativeButton("Cancel", null)
-            .setPositiveButton("Save", null)
-            .create()
-        dialog.setOnShowListener {
-            dialog.window?.setBackgroundDrawableResource(android.R.color.transparent)
-            dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener {
-                val entity = buildSchedule(
-                    titleInput = titleInput,
-                    categorySpinner = categorySpinner,
-                    colorSpinner = colorSpinner,
-                    repeatModeSpinner = repeatModeSpinner,
-                    hourPicker = hourPicker,
-                    minutePicker = minutePicker,
-                    deadline = selectedDeadline,
-                    location = LocationSelection(
-                        name = locationInput.text.toString().trim().takeIf { it.isNotBlank() },
-                        selectedName = selectedLocationName,
-                        address = selectedLocationAddress,
-                        latitude = selectedLocationLatitude,
-                        longitude = selectedLocationLongitude
-                    )
-                ) ?: return@setOnClickListener
-                onSave(entity)
-                dialog.dismiss()
+        // 입력 폼 부분을 스크롤Wrap 처리하여 본문에 탑재
+        val scrollBody = formViews.scrollWrap(form).apply {
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                0,
+                1f
+            )
+            overScrollMode = View.OVER_SCROLL_NEVER
+        }
+        card.addView(scrollBody)
+
+        // 💡 4. 하단 버튼 영역 커스텀 생성 (카드 내부 최하단 자식으로 밀어 넣기)
+        val bottomActions = LinearLayout(context).apply {
+            orientation = LinearLayout.HORIZONTAL
+            gravity = android.view.Gravity.END
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                topMargin = formViews.dp(24)
             }
         }
+
+        val cancelButton = MaterialButton(context, null, com.google.android.material.R.attr.borderlessButtonStyle).apply {
+            text = "Cancel"
+            setTextColor(Color.rgb(102, 112, 133))
+            setOnClickListener { dialog.dismiss() }
+        }
+
+        val saveButton = MaterialButton(context).apply {
+            text = "Save"
+            backgroundTintList = android.content.res.ColorStateList.valueOf(Color.rgb(103, 58, 183)) // 퍼플 색상 반영
+            setTextColor(Color.WHITE)
+            layoutParams = LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT
+            ).apply {
+                marginStart = formViews.dp(8)
+            }
+        }
+
+        bottomActions.addView(cancelButton)
+        bottomActions.addView(saveButton)
+        card.addView(bottomActions)
+
+        container.addView(card)
+        dialog.setContentView(container)
+
+        // 저장 세팅 리스너 연동
+        saveButton.setOnClickListener {
+            val entity = buildSchedule(
+                titleInput = titleInput,
+                categorySpinner = categorySpinner,
+                colorSpinner = colorSpinner,
+                repeatModeSpinner = repeatModeSpinner,
+                hourPicker = hourPicker,
+                minutePicker = minutePicker,
+                deadline = selectedDeadline,
+                location = LocationSelection(
+                    name = locationInput.text.toString().trim().takeIf { it.isNotBlank() },
+                    selectedName = selectedLocationName,
+                    address = selectedLocationAddress,
+                    latitude = selectedLocationLatitude,
+                    longitude = selectedLocationLongitude
+                )
+            ) ?: return@setOnClickListener
+            onSave(entity)
+            dialog.dismiss()
+        }
+
+        // 투명 뒷배경 및 가로 MATCH_PARENT 강제 가득 채우기 설정
+        dialog.window?.apply {
+            setBackgroundDrawableResource(android.R.color.transparent)
+            setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+        }
+
         dialog.show()
     }
 
@@ -265,7 +357,7 @@ class ScheduleEditorDialog(
         val picker = DatePicker(context).apply {
             init(initial.year, initial.monthValue - 1, initial.dayOfMonth, null)
         }
-        AlertDialog.Builder(context)
+        android.app.AlertDialog.Builder(context)
             .setTitle("Deadline")
             .setView(picker)
             .setNegativeButton("Cancel", null)
