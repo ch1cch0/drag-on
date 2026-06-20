@@ -36,6 +36,18 @@
                 android:textSize="20sp" />
 
             <com.google.android.material.button.MaterialButton
+                android:id="@+id/magicWandButton"
+                style="?attr/borderlessButtonStyle"
+                android:layout_width="44dp"
+                android:layout_height="44dp"
+                android:backgroundTint="@android:color/transparent"
+                android:contentDescription="Magic AI Assistant"
+                android:text=""
+                app:icon="@drawable/ic_wand_24" app:iconGravity="textStart"
+                app:iconPadding="0dp"
+                app:iconTint="#7A8491" />
+
+            <com.google.android.material.button.MaterialButton
                 android:id="@+id/settingsButton"
                 style="?attr/borderlessButtonStyle"
                 android:layout_width="44dp"
@@ -166,3 +178,4 @@
     </LinearLayout>
 
 </androidx.coordinatorlayout.widget.CoordinatorLayout>
+
