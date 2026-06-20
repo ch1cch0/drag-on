@@ -15,3 +15,8 @@
 .externalNativeBuild
 .cxx
 app/build/
+venv/
+.venv/
+__pycache__/
+*.pyc
+.env
