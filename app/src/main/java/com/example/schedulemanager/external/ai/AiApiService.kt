@@ -1,11 +1,11 @@
-
-
 package com.example.schedulemanager.external.ai
 
+import okhttp3.OkHttpClient
 import retrofit2.Retrofit
 import retrofit2.converter.gson.GsonConverterFactory
 import retrofit2.http.Body
 import retrofit2.http.POST
+import java.util.concurrent.TimeUnit
 
 // 1. 서버가 수신 대기하는 키값 "text"
 data class NlpRequest(
@@ -22,6 +22,12 @@ interface AiApiService {
 
     companion object {
         fun create(baseUrl: String): AiApiService {
+            val okHttpClient = OkHttpClient.Builder()
+                .connectTimeout(60, TimeUnit.SECONDS)
+                .readTimeout(60, TimeUnit.SECONDS)
+                .writeTimeout(60, TimeUnit.SECONDS)
+                .build()
+
             return Retrofit.Builder()
                 .baseUrl(baseUrl)
                 .addConverterFactory(GsonConverterFactory.create())

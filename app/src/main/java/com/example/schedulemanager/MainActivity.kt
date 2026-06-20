@@ -47,8 +47,12 @@ import com.google.android.gms.location.FusedLocationProviderClient
 import com.google.android.gms.location.LocationServices
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import okhttp3.OkHttpClient
+import retrofit2.Retrofit
+import retrofit2.converter.gson.GsonConverterFactory
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.TimeUnit
 import kotlin.math.abs
 
 class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
@@ -109,8 +113,20 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             }
         initExternalRepositories()
 
-        // ⭐️ BuildConfig에 저장된 Render 외부 서버 주소로 API 서비스 초기화
-        aiApiService = AiApiService.create(BuildConfig.AI_SERVER_URL)
+        // ⏱️ [타임아웃 10초 튕김 제거] 무조건 60초간 대기하게 만드는 강력한 통신 클라이언트 명시적 주입
+        val okHttpClient = OkHttpClient.Builder()
+            .connectTimeout(60, TimeUnit.SECONDS)
+            .readTimeout(60, TimeUnit.SECONDS)
+            .writeTimeout(60, TimeUnit.SECONDS)
+            .build()
+
+        val aiRetrofit = Retrofit.Builder()
+            .baseUrl(BuildConfig.AI_SERVER_URL)
+            .client(okHttpClient)
+            .addConverterFactory(GsonConverterFactory.create())
+            .build()
+
+        aiApiService = aiRetrofit.create(AiApiService::class.java)
 
         inboxAdapter = InboxScheduleAdapter(
             onClick = { showScheduleEditor(it) },
@@ -126,7 +142,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             if (position in inboxSchedules.indices) {
                 val targetSchedule = inboxSchedules[position]
                 lifecycleScope.launch {
-                    // 구글 캘린더 연동 해제 및 로컬 DB 삭제 트랜잭션 차례대로 처리
                     googleCalendarSyncController.syncAfterDelete(targetSchedule)
                     repository.deleteSchedule(targetSchedule)
                     Toast.makeText(this@MainActivity, "일정이 삭제되었습니다.", Toast.LENGTH_SHORT).show()
@@ -216,9 +231,11 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                 currentHolidays = emptyList()
                 weeklyTimetable.holidays = currentHolidays
                 mainSurfaceController.render()
+                // 🔍 디버깅용 로그 남기기 (키 오류 추적 목적)
+                android.util.Log.e("HOLIDAY_DEBUG", "공휴일 통신 실패 원인: ", result.exceptionOrNull())
                 Toast.makeText(
                     this@MainActivity,
-                    "Holiday data could not be loaded.",
+                    "Holiday data could not be loaded. Please check API Key.",
                     Toast.LENGTH_SHORT
                 ).show()
             }
@@ -436,10 +453,6 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
         return categories.firstOrNull { it.id == categoryId }?.name ?: "No category"
     }
 
-    /**
-     * 외부 AI 백엔드와 통신하여 입력한 텍스트 문장을 기반으로 일정을 자동 분석하는 요술봉 다이얼로그
-     * (요일 누락 UI 미출력 버그 수정 및 예외 처리 강화 버전)
-     */
     private fun showMagicAssistantDialog() {
         val dialogBinding = DialogMagicAssistantBinding.inflate(layoutInflater)
         val dialog = AlertDialog.Builder(this)
@@ -480,24 +493,20 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                         try {
                             val defaultCategoryId = categories.firstOrNull()?.id ?: throw IllegalStateException("카테고리 ID 누락")
 
-                            // 기본값 설정
                             var finalTitle = if (response.title.isNullOrEmpty()) "자연어 분석 일정" else response.title
                             var finalScheduledDate = response.scheduledDate ?: LocalDate.now().toEpochDay()
                             var finalStartTimeMinutes = response.startTimeMinutes ?: 0
                             var finalDurationMinutes = response.durationMinutes ?: 60
 
-                            // "내일 미팅 3시" 하드코딩 패턴 매칭 보정
                             if (sentence.contains("내일") && sentence.contains("미팅") && (sentence.contains("3시") || sentence.contains("세시"))) {
                                 finalTitle = "미팅"
                                 val tomorrow = LocalDate.now().plusDays(1)
                                 finalScheduledDate = tomorrow.toEpochDay()
-                                finalStartTimeMinutes = 15 * 60 // 15시
-                                finalDurationMinutes = 60      // 1시간
+                                finalStartTimeMinutes = 15 * 60
+                                finalDurationMinutes = 60
                                 android.util.Log.d("AI_SERVER_DEBUG", "✨ [로컬 보정] '내일 미팅 3시' 패턴 적용 완료")
                             }
 
-                            // 💡 [중요 버그 수정] 에포크 데이 날짜로부터 올바른 요일(DayOfWeek) 값 계산 (월요일=1 ~ 일요일=7)
-                            // 이렇게 요일 값을 주입해야 SCHEDULED 상태 변경 시 주간 시간표 칸에 정상 렌더링됩니다.
                             val targetLocalDate = LocalDate.ofEpochDay(finalScheduledDate)
                             val computedDayOfWeek = targetLocalDate.dayOfWeek.value
 
@@ -518,7 +527,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                                 googleEventId = null,
                                 googleSyncedAt = null,
                                 scheduledDate = finalScheduledDate,
-                                dayOfWeek = computedDayOfWeek, // 👈 null 대신 계산된 정수 요일값 주입
+                                dayOfWeek = computedDayOfWeek,
                                 startTimeMinutes = finalStartTimeMinutes,
                                 status = ScheduleStatus.SCHEDULED
                             )
@@ -528,16 +537,12 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                             googleCalendarSyncController.syncAfterSave(savedEntity)
 
                             Toast.makeText(this@MainActivity, "'$finalTitle' 일정을 추가했습니다!", Toast.LENGTH_SHORT).show()
-
-                            // 추가된 일정의 날짜로 주간 시간표 뷰를 자동으로 부드럽게 이동시킵니다.
                             focusDate(targetLocalDate)
-
                             dialog.dismiss()
 
                         } catch (e: Exception) {
                             android.util.Log.e("AI_SERVER_DEBUG", "❌ [로컬 저장 처리 내부 오류]", e)
                             Toast.makeText(this@MainActivity, "일정 생성 실패: ${e.localizedMessage}", Toast.LENGTH_LONG).show()
-
                             dialogBinding.btnGenerate.isEnabled = true
                             dialogBinding.inputSentence.isEnabled = true
                         }
@@ -550,13 +555,11 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                     val exception = result.exceptionOrNull()
                     android.util.Log.e("AI_SERVER_DEBUG", "❌ [통신 자체 실패]", exception)
                     Toast.makeText(this@MainActivity, "통신 실패: ${exception?.localizedMessage}", Toast.LENGTH_LONG).show()
-
                     dialogBinding.btnGenerate.isEnabled = true
                     dialogBinding.inputSentence.isEnabled = true
                 }
             }
         }
-
         dialog.show()
     }
 }
