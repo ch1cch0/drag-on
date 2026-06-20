@@ -1,5 +1,3 @@
-
-
 package com.example.schedulemanager
 
 import android.content.ClipData
@@ -18,6 +16,7 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.GestureDetectorCompat
 import androidx.fragment.app.commit
 import androidx.lifecycle.lifecycleScope
+import androidx.recyclerview.widget.ItemTouchHelper
 import com.example.schedulemanager.data.AppDatabase
 import com.example.schedulemanager.data.CategoryEntity
 import com.example.schedulemanager.data.ScheduleEntity
@@ -119,10 +118,28 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
             categoryName = { id -> categoryName(id) }
         )
         inboxController = InboxBottomSheetController(binding, inboxAdapter)
+
+        // 💡 [스와이프 삭제 기능 연동] 인박스 리사이클러뷰 객체를 찾아 스와이프 콜백 연결
+        val recyclerView = binding.inboxRecycler
+        val swipeCallback = SwipeToDeleteCallback(inboxAdapter) { position ->
+            val inboxSchedules = schedules.filter { it.status == ScheduleStatus.INBOX }
+            if (position in inboxSchedules.indices) {
+                val targetSchedule = inboxSchedules[position]
+                lifecycleScope.launch {
+                    // 구글 캘린더 연동 해제 및 로컬 DB 삭제 트랜잭션 차례대로 처리
+                    googleCalendarSyncController.syncAfterDelete(targetSchedule)
+                    repository.deleteSchedule(targetSchedule)
+                    Toast.makeText(this@MainActivity, "일정이 삭제되었습니다.", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        ItemTouchHelper(swipeCallback).attachToRecyclerView(recyclerView)
+
         inboxController.setup(
             onAddSchedule = { showScheduleEditor(null) },
             onManageCategories = { showCategoryManager() }
         )
+
         binding.settingsButton.setOnClickListener {
             startActivity(Intent(this, SettingsActivity::class.java))
         }
@@ -420,24 +437,8 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
     }
 
     /**
-     * ⭐️ 외부 AI 백엔드와 통신하여 입력한 텍스트 문장을 기반으로 일정을 자동 분석하는 요술봉 다이얼로그
-     */
-
-    /**
      * 외부 AI 백엔드와 통신하여 입력한 텍스트 문장을 기반으로 일정을 자동 분석하는 요술봉 다이얼로그
-     * (앱 강제 종료 방지 및 안전 예외 처리 강화 버전)
-     */
-    /**
-     * 외부 AI 백엔드와 통신하여 입력한 텍스트 문장을 기반으로 일정을 자동 분석하는 요술봉 다이얼로그
-     * (서버 응답 파싱 검증 및 정상 알림 반영)
-     */
-    /**
-     * 외부 AI 백엔드와 통신하여 입력한 텍스트 문장을 기반으로 일정을 자동 분석하는 요술봉 다이얼로그
-     * ("내일 미팅 3시" 등 특정 문장 패턴에 대한 클라이언트 즉시 대응 로직 포함)
-     */
-    /**
-     * 외부 AI 백엔드와 통신하여 입력한 텍스트 문장을 기반으로 일정을 자동 분석하는 요술봉 다이얼로그
-     * (인박스를 거치지 않고 주간 시간표에 즉시 등록 및 해당 날짜 포커스 반영)
+     * (요일 누락 UI 미출력 버그 수정 및 예외 처리 강화 버전)
      */
     private fun showMagicAssistantDialog() {
         val dialogBinding = DialogMagicAssistantBinding.inflate(layoutInflater)
@@ -481,7 +482,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
 
                             // 기본값 설정
                             var finalTitle = if (response.title.isNullOrEmpty()) "자연어 분석 일정" else response.title
-                            var finalScheduledDate = response.scheduledDate ?: System.currentTimeMillis()
+                            var finalScheduledDate = response.scheduledDate ?: LocalDate.now().toEpochDay()
                             var finalStartTimeMinutes = response.startTimeMinutes ?: 0
                             var finalDurationMinutes = response.durationMinutes ?: 60
 
@@ -495,7 +496,11 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                                 android.util.Log.d("AI_SERVER_DEBUG", "✨ [로컬 보정] '내일 미팅 3시' 패턴 적용 완료")
                             }
 
-                            // 💡 [요구사항 반영] 상태를 INBOX가 아닌 SCHEDULED로 변경하여 시간표에 즉시 노출
+                            // 💡 [중요 버그 수정] 에포크 데이 날짜로부터 올바른 요일(DayOfWeek) 값 계산 (월요일=1 ~ 일요일=7)
+                            // 이렇게 요일 값을 주입해야 SCHEDULED 상태 변경 시 주간 시간표 칸에 정상 렌더링됩니다.
+                            val targetLocalDate = LocalDate.ofEpochDay(finalScheduledDate)
+                            val computedDayOfWeek = targetLocalDate.dayOfWeek.value
+
                             val newSchedule = ScheduleEntity(
                                 id = 0,
                                 title = finalTitle,
@@ -513,9 +518,9 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
                                 googleEventId = null,
                                 googleSyncedAt = null,
                                 scheduledDate = finalScheduledDate,
-                                dayOfWeek = null,
+                                dayOfWeek = computedDayOfWeek, // 👈 null 대신 계산된 정수 요일값 주입
                                 startTimeMinutes = finalStartTimeMinutes,
-                                status = ScheduleStatus.SCHEDULED // 👈 여기를 SCHEDULED로 변경
+                                status = ScheduleStatus.SCHEDULED
                             )
 
                             val savedId = repository.saveSchedule(newSchedule)
@@ -524,8 +529,7 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
 
                             Toast.makeText(this@MainActivity, "'$finalTitle' 일정을 추가했습니다!", Toast.LENGTH_SHORT).show()
 
-                            // 💡 [UX 개선] 추가된 일정의 날짜로 주간 시간표 뷰를 자동으로 부드럽게 이동시킵니다.
-                            val targetLocalDate = LocalDate.ofEpochDay(finalScheduledDate)
+                            // 추가된 일정의 날짜로 주간 시간표 뷰를 자동으로 부드럽게 이동시킵니다.
                             focusDate(targetLocalDate)
 
                             dialog.dismiss()
@@ -555,7 +559,4 @@ class MainActivity : AppCompatActivity(), MonthCalendarFragment.Callbacks {
 
         dialog.show()
     }
-
-
-
 }
